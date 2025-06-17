@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useGame } from '../contexts/GameContext';
+import { useUser } from '../contexts/UserContext';
 import {
   AppBar,
   Toolbar,
@@ -16,10 +17,16 @@ import {
   DialogActions,
   TextField,
   MenuItem,
+  Avatar,
+  IconButton,
+  Menu,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
-import { Add, AccountBalanceWallet } from '@mui/icons-material';
+import { Add, AccountBalanceWallet, MoreVert, Person, Edit } from '@mui/icons-material';
 import ClientOnlyWalletButton from './ClientOnlyWalletButton';
 import NetworkIndicator from './NetworkIndicator';
+import ProfileSetup from './ProfileSetup';
 import Image from 'next/image';
 
 interface HeaderProps {
@@ -29,11 +36,21 @@ interface HeaderProps {
 export default function Header({ onCreateGame }: HeaderProps) {
   const { connected, publicKey } = useWallet();
   const { getHouseFeeInfo } = useGame();
+  const { userProfile, hasProfile, loading: userLoading } = useUser();
   const [createGameOpen, setCreateGameOpen] = useState(false);
+  const [profileSetupOpen, setProfileSetupOpen] = useState(false);
+  const [profileMenuAnchor, setProfileMenuAnchor] = useState<null | HTMLElement>(null);
   const [buyIn, setBuyIn] = useState(1);
   const [maxPlayers, setMaxPlayers] = useState(5);
   
   const houseFeeInfo = getHouseFeeInfo();
+
+  // Show profile setup when wallet connects but no profile exists
+  useEffect(() => {
+    if (connected && !userLoading && !hasProfile) {
+      setProfileSetupOpen(true);
+    }
+  }, [connected, hasProfile, userLoading]);
 
   const handleCreateGame = () => {
     onCreateGame(buyIn, maxPlayers);
@@ -128,25 +145,89 @@ export default function Header({ onCreateGame }: HeaderProps) {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <NetworkIndicator />
             {connected && publicKey ? (
-              <Chip
-                icon={<AccountBalanceWallet />}
-                label={formatWalletAddress(publicKey.toString())}
-                variant="outlined"
-                sx={{
-                  color: 'white',
-                  borderColor: 'rgba(255, 107, 53, 0.4)',
-                  backgroundColor: 'rgba(255, 107, 53, 0.1)',
-                  backdropFilter: 'blur(10px)',
-                  '& .MuiChip-icon': {
-                    color: '#FF8C42',
-                  },
-                  '&:hover': {
-                    borderColor: 'rgba(255, 107, 53, 0.6)',
-                    backgroundColor: 'rgba(255, 107, 53, 0.2)',
-                  },
-                  transition: 'all 0.3s ease',
-                }}
-              />
+              hasProfile && userProfile ? (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Chip
+                    avatar={
+                      <Avatar sx={{ width: 24, height: 24, fontSize: '14px' }}>
+                        {userProfile.profile_picture_url}
+                      </Avatar>
+                    }
+                    label={userProfile.username}
+                    variant="outlined"
+                    onClick={(e) => setProfileMenuAnchor(e.currentTarget)}
+                    sx={{
+                      color: 'white',
+                      borderColor: 'rgba(255, 107, 53, 0.4)',
+                      backgroundColor: 'rgba(255, 107, 53, 0.1)',
+                      backdropFilter: 'blur(10px)',
+                      cursor: 'pointer',
+                      '&:hover': {
+                        borderColor: 'rgba(255, 107, 53, 0.6)',
+                        backgroundColor: 'rgba(255, 107, 53, 0.2)',
+                      },
+                      transition: 'all 0.3s ease',
+                    }}
+                  />
+                  <IconButton
+                    size="small"
+                    onClick={(e) => setProfileMenuAnchor(e.currentTarget)}
+                    sx={{ color: 'white' }}
+                  >
+                    <MoreVert />
+                  </IconButton>
+                  <Menu
+                    anchorEl={profileMenuAnchor}
+                    open={Boolean(profileMenuAnchor)}
+                    onClose={() => setProfileMenuAnchor(null)}
+                    PaperProps={{
+                      sx: {
+                        backgroundColor: 'rgba(20, 20, 20, 0.95)',
+                        backdropFilter: 'blur(20px)',
+                        border: '1px solid rgba(255, 107, 53, 0.3)',
+                      }
+                    }}
+                  >
+                    <MenuItem onClick={() => {
+                      setProfileMenuAnchor(null);
+                      setProfileSetupOpen(true);
+                    }} sx={{ color: 'white' }}>
+                      <ListItemIcon>
+                        <Edit sx={{ color: '#FF8C42' }} />
+                      </ListItemIcon>
+                      <ListItemText>Edit Profile</ListItemText>
+                    </MenuItem>
+                    <MenuItem onClick={() => {
+                      setProfileMenuAnchor(null);
+                    }} sx={{ color: 'white' }}>
+                      <ListItemIcon>
+                        <Person sx={{ color: '#FF8C42' }} />
+                      </ListItemIcon>
+                      <ListItemText>{formatWalletAddress(publicKey.toString())}</ListItemText>
+                    </MenuItem>
+                  </Menu>
+                </Box>
+              ) : (
+                <Chip
+                  icon={<AccountBalanceWallet />}
+                  label={userLoading ? 'Loading...' : formatWalletAddress(publicKey.toString())}
+                  variant="outlined"
+                  sx={{
+                    color: 'white',
+                    borderColor: 'rgba(255, 107, 53, 0.4)',
+                    backgroundColor: 'rgba(255, 107, 53, 0.1)',
+                    backdropFilter: 'blur(10px)',
+                    '& .MuiChip-icon': {
+                      color: '#FF8C42',
+                    },
+                    '&:hover': {
+                      borderColor: 'rgba(255, 107, 53, 0.6)',
+                      backgroundColor: 'rgba(255, 107, 53, 0.2)',
+                    },
+                    transition: 'all 0.3s ease',
+                  }}
+                />
+              )
             ) : (
               <Box sx={{ '& .wallet-adapter-button': { 
                 background: 'linear-gradient(135deg, #FF6B35 0%, #FF8C42 100%) !important', 
@@ -353,6 +434,13 @@ export default function Header({ onCreateGame }: HeaderProps) {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Profile Setup Dialog */}
+      <ProfileSetup
+        open={profileSetupOpen}
+        onClose={() => setProfileSetupOpen(false)}
+        onComplete={() => setProfileSetupOpen(false)}
+      />
     </>
   );
 } 
