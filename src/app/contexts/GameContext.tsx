@@ -1,7 +1,15 @@
 'use client';
 
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { PublicKey } from '@solana/web3.js';
+import { 
+  getSolanaConnection, 
+  createEscrowDepositTransaction, 
+  solToLamports, 
+  getWalletBalance,
+  generateGameEscrowAccount
+} from '@/lib/solana';
 
 // House configuration
 const HOUSE_FEE_PERCENTAGE = parseFloat(process.env.NEXT_PUBLIC_HOUSE_FEE_PERCENTAGE || '0.03');
@@ -11,6 +19,8 @@ export interface Player {
   publicKey: string;
   buyIn: number;
   address: string;
+  transactionSignature?: string; // Track payment transaction
+  paymentConfirmed: boolean;
 }
 
 export interface Game {
@@ -23,9 +33,14 @@ export interface Game {
   winner?: string[];
   loser?: string;
   totalPot: number;
-  houseFeeCollected: number; // Track house fees
+  houseFeeCollected: number;
   createdBy: string;
   createdAt: number;
+  escrowAccount?: {
+    publicKey: string;
+    secretKey: number[]; // Store for distribution later
+  };
+  paymentStatus: 'pending' | 'collecting' | 'complete' | 'failed';
 }
 
 export interface GameState {
@@ -48,17 +63,23 @@ const initialState: GameState = {
 function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case 'CREATE_GAME': {
+      const escrowAccount = generateGameEscrowAccount();
       const newGame: Game = {
         id: Math.random().toString(36).substr(2, 9),
         players: [],
         gameStatus: 'waiting',
         maxPlayers: action.payload.maxPlayers,
-        minPlayers: Math.max(3, Math.ceil(action.payload.maxPlayers * 0.6)), // 60% of max for min
+        minPlayers: Math.max(3, Math.ceil(action.payload.maxPlayers * 0.6)),
         buyInAmount: action.payload.buyIn,
         totalPot: 0,
         houseFeeCollected: 0,
         createdBy: action.payload.createdBy,
         createdAt: Date.now(),
+        escrowAccount: {
+          publicKey: escrowAccount.publicKey.toString(),
+          secretKey: Array.from(escrowAccount.secretKey),
+        },
+        paymentStatus: 'pending',
       };
 
       return {
@@ -203,18 +224,24 @@ function gameReducer(state: GameState, action: GameAction): GameState {
 
 interface GameContextType {
   state: GameState;
-  createGame: (buyIn: number, maxPlayers: number) => void;
-  joinGame: (gameId: string, buyIn: number) => void;
+  createGame: (buyIn: number, maxPlayers: number) => Promise<void>;
+  joinGame: (gameId: string, buyIn: number) => Promise<void>;
   getJoinableGames: () => Game[];
   getUserGames: () => Game[];
   getHouseFeeInfo: () => { percentage: number; address: string };
+  walletBalance: number;
+  checkingBalance: boolean;
+  paymentLoading: boolean;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
 
 export function GameContextProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(gameReducer, initialState);
-  const { publicKey } = useWallet();
+  const { publicKey, signTransaction } = useWallet();
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [checkingBalance, setCheckingBalance] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
 
   // Auto-start games when full and simulate gameplay
   useEffect(() => {
@@ -238,29 +265,96 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
     });
   }, [state.games]);
 
-  const createGame = (buyIn: number, maxPlayers: number) => {
-    if (!publicKey) return;
+  const createGame = async (buyIn: number, maxPlayers: number) => {
+    if (!publicKey || !signTransaction) return;
     
-    dispatch({ 
-      type: 'CREATE_GAME', 
-      payload: { 
-        buyIn, 
-        maxPlayers, 
-        createdBy: publicKey.toString() 
-      } 
-    });
+    try {
+      setPaymentLoading(true);
+      
+      // Create the game first (creates escrow account)
+      dispatch({ 
+        type: 'CREATE_GAME', 
+        payload: { 
+          buyIn, 
+          maxPlayers, 
+          createdBy: publicKey.toString() 
+        } 
+      });
+      
+      // Creator must also deposit their buy-in
+      const game = state.games[state.games.length - 1]; // Get the newly created game
+      if (game?.escrowAccount) {
+        await processPayment(publicKey, new PublicKey(game.escrowAccount.publicKey), buyIn);
+      }
+      
+      console.log('🎮 Game created and creator payment processed');
+    } catch (error) {
+      console.error('Failed to create game:', error);
+      throw error;
+    } finally {
+      setPaymentLoading(false);
+    }
   };
 
-  const joinGame = (gameId: string, buyIn: number) => {
-    if (!publicKey) return;
+  const joinGame = async (gameId: string, buyIn: number) => {
+    if (!publicKey || !signTransaction) return;
     
-    const player: Player = {
-      publicKey: publicKey.toString(),
-      buyIn,
-      address: publicKey.toString().slice(0, 8) + '...',
-    };
+    try {
+      setPaymentLoading(true);
+      
+      const game = state.games.find(g => g.id === gameId);
+      if (!game?.escrowAccount) {
+        throw new Error('Game escrow account not found');
+      }
+      
+      // Process payment first
+      const signature = await processPayment(publicKey, new PublicKey(game.escrowAccount.publicKey), buyIn);
+      
+      // Add player to game after successful payment
+      const player: Player = {
+        publicKey: publicKey.toString(),
+        buyIn,
+        address: publicKey.toString().slice(0, 8) + '...',
+        paymentConfirmed: true,
+        transactionSignature: signature,
+      };
 
-    dispatch({ type: 'JOIN_GAME', payload: { gameId, player } });
+      dispatch({ type: 'JOIN_GAME', payload: { gameId, player } });
+      console.log('🎮 Player joined game and payment processed');
+    } catch (error) {
+      console.error('Failed to join game:', error);
+      throw error;
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
+  // Process SOL payment to escrow
+  const processPayment = async (playerPublicKey: PublicKey, escrowPublicKey: PublicKey, amount: number): Promise<string> => {
+    if (!signTransaction) {
+      throw new Error('Wallet not connected');
+    }
+
+    const connection = getSolanaConnection();
+    const { blockhash } = await connection.getLatestBlockhash();
+    
+    // Create transaction
+    const transaction = createEscrowDepositTransaction(
+      playerPublicKey,
+      escrowPublicKey,
+      solToLamports(amount),
+      blockhash
+    );
+    
+    // Sign and send transaction
+    const signedTransaction = await signTransaction(transaction);
+    const signature = await connection.sendRawTransaction(signedTransaction.serialize());
+    
+    // Wait for confirmation
+    await connection.confirmTransaction(signature);
+    
+    console.log(`💰 Payment of ${amount} SOL sent to escrow. Signature: ${signature}`);
+    return signature;
   };
 
   const getJoinableGames = () => {
@@ -278,6 +372,33 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
     );
   };
 
+  // Check wallet balance
+  useEffect(() => {
+    const checkBalance = async () => {
+      if (!publicKey) {
+        setWalletBalance(0);
+        return;
+      }
+      
+      try {
+        setCheckingBalance(true);
+        const balance = await getWalletBalance(publicKey);
+        setWalletBalance(balance);
+      } catch (error) {
+        console.error('Failed to check wallet balance:', error);
+        setWalletBalance(0);
+      } finally {
+        setCheckingBalance(false);
+      }
+    };
+
+    checkBalance();
+    
+    // Check balance every 30 seconds
+    const interval = setInterval(checkBalance, 30000);
+    return () => clearInterval(interval);
+  }, [publicKey]);
+
   const getHouseFeeInfo = () => ({
     percentage: HOUSE_FEE_PERCENTAGE,
     address: HOUSE_WALLET_ADDRESS,
@@ -291,6 +412,9 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
       getJoinableGames,
       getUserGames,
       getHouseFeeInfo,
+      walletBalance,
+      checkingBalance,
+      paymentLoading,
     }}>
       {children}
     </GameContext.Provider>

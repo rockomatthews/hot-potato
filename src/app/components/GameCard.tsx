@@ -27,11 +27,13 @@ import { Game } from '../contexts/GameContext';
 
 interface GameCardProps {
   game: Game;
-  onJoinGame?: (gameId: string, buyIn: number) => void;
+  onJoinGame?: (gameId: string, buyIn: number) => Promise<void>;
   isUserGame?: boolean;
+  walletBalance?: number;
+  paymentLoading?: boolean;
 }
 
-export default function GameCard({ game, onJoinGame, isUserGame = false }: GameCardProps) {
+export default function GameCard({ game, onJoinGame, isUserGame = false, walletBalance = 0, paymentLoading = false }: GameCardProps) {
   const { connected, publicKey } = useWallet();
   
   const isUserInGame = publicKey && game.players.some(p => p.publicKey === publicKey.toString());
@@ -77,11 +79,13 @@ export default function GameCard({ game, onJoinGame, isUserGame = false }: GameC
     return 'Just now';
   };
 
-  const handleJoinGame = () => {
+  const handleJoinGame = async () => {
     if (onJoinGame && connected) {
-      onJoinGame(game.id, game.buyInAmount);
+      await onJoinGame(game.id, game.buyInAmount);
     }
   };
+
+  const hasInsufficientBalance = walletBalance < game.buyInAmount;
 
   return (
     <Card 
@@ -284,13 +288,18 @@ export default function GameCard({ game, onJoinGame, isUserGame = false }: GameC
       {/* Action Button */}
       {game.gameStatus === 'waiting' && !isUserInGame && onJoinGame && (
         <Box sx={{ p: 3, pt: 0 }}>
+          {hasInsufficientBalance && (
+            <Typography variant="body2" color="error" sx={{ mb: 1, textAlign: 'center' }}>
+              ⚠️ Insufficient balance ({walletBalance.toFixed(3)} SOL)
+            </Typography>
+          )}
           <Button
             fullWidth
             variant="contained"
             size="large"
             onClick={handleJoinGame}
-            disabled={!connected}
-            startIcon={<PersonAdd />}
+            disabled={!connected || paymentLoading || hasInsufficientBalance}
+            startIcon={paymentLoading ? <CircularProgress size={20} /> : <PersonAdd />}
             sx={{
               backgroundColor: '#ff6b35',
               color: 'white',
@@ -298,11 +307,15 @@ export default function GameCard({ game, onJoinGame, isUserGame = false }: GameC
               '&:hover': {
                 backgroundColor: '#ff5722',
               },
+              '&:disabled': {
+                backgroundColor: 'rgba(255, 107, 53, 0.3)',
+                color: 'rgba(255, 255, 255, 0.5)',
+              },
               borderRadius: '12px',
               py: 1.5,
             }}
           >
-            Join for {game.buyInAmount} SOL
+            {paymentLoading ? 'Processing Payment...' : `Join for ${game.buyInAmount} SOL`}
           </Button>
         </Box>
       )}

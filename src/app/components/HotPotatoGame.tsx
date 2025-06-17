@@ -23,17 +23,27 @@ import GameCard from './GameCard';
 
 export default function HotPotatoGame() {
   const { connected } = useWallet();
-  const { createGame, joinGame, getJoinableGames, getUserGames } = useGame();
+  const { createGame, joinGame, getJoinableGames, getUserGames, walletBalance, paymentLoading } = useGame();
 
   const userGames = getUserGames();
   const joinableGames = getJoinableGames();
 
-  const handleCreateGame = (buyIn: number, maxPlayers: number) => {
-    createGame(buyIn, maxPlayers);
+  const handleCreateGame = async (buyIn: number, maxPlayers: number) => {
+    try {
+      await createGame(buyIn, maxPlayers);
+    } catch (error) {
+      console.error('Failed to create game:', error);
+      // Error handling is already done in the Header component
+    }
   };
 
-  const handleJoinGame = (gameId: string, buyIn: number) => {
-    joinGame(gameId, buyIn);
+  const handleJoinGame = async (gameId: string, buyIn: number) => {
+    try {
+      await joinGame(gameId, buyIn);
+    } catch (error) {
+      console.error('Failed to join game:', error);
+      // TODO: Add toast notification for errors
+    }
   };
 
   if (!connected) {
@@ -234,6 +244,8 @@ export default function HotPotatoGame() {
                     game={game} 
                     onJoinGame={handleJoinGame}
                     isUserGame={false}
+                    walletBalance={walletBalance}
+                    paymentLoading={paymentLoading}
                   />
                 </Grid>
               ))}

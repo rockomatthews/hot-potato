@@ -35,13 +35,14 @@ interface HeaderProps {
 
 export default function Header({ onCreateGame }: HeaderProps) {
   const { connected, publicKey } = useWallet();
-  const { getHouseFeeInfo } = useGame();
+  const { getHouseFeeInfo, walletBalance, paymentLoading, createGame } = useGame();
   const { userProfile, hasProfile, loading: userLoading } = useUser();
   const [createGameOpen, setCreateGameOpen] = useState(false);
   const [profileSetupOpen, setProfileSetupOpen] = useState(false);
   const [profileMenuAnchor, setProfileMenuAnchor] = useState<null | HTMLElement>(null);
   const [buyIn, setBuyIn] = useState(1);
   const [maxPlayers, setMaxPlayers] = useState(5);
+  const [createGameError, setCreateGameError] = useState<string | null>(null);
   
   const houseFeeInfo = getHouseFeeInfo();
 
@@ -52,11 +53,25 @@ export default function Header({ onCreateGame }: HeaderProps) {
     }
   }, [connected, hasProfile, userLoading]);
 
-  const handleCreateGame = () => {
-    onCreateGame(buyIn, maxPlayers);
-    setCreateGameOpen(false);
-    setBuyIn(1);
-    setMaxPlayers(5);
+  const handleCreateGame = async () => {
+    try {
+      setCreateGameError(null);
+      
+      // Check if user has enough balance
+      if (walletBalance < buyIn) {
+        setCreateGameError(`Insufficient balance. You need ${buyIn} SOL but only have ${walletBalance.toFixed(3)} SOL`);
+        return;
+      }
+      
+      await createGame(buyIn, maxPlayers);
+      onCreateGame(buyIn, maxPlayers); // Keep compatibility with parent component
+      setCreateGameOpen(false);
+      setBuyIn(1);
+      setMaxPlayers(5);
+    } catch (error) {
+      console.error('Failed to create game:', error);
+      setCreateGameError(error instanceof Error ? error.message : 'Failed to create game');
+    }
   };
 
   const formatWalletAddress = (address: string) => {
@@ -395,6 +410,37 @@ export default function Header({ onCreateGame }: HeaderProps) {
                 <strong> Winners split:</strong> {(buyIn * (1 - houseFeeInfo.percentage) * maxPlayers / (maxPlayers - 1)).toFixed(3)} SOL each
               </Typography>
             </Box>
+
+            {/* Wallet Balance */}
+            <Box sx={{ 
+              p: 2, 
+              background: 'rgba(255, 107, 53, 0.05)', 
+              borderRadius: '12px',
+              border: '1px solid rgba(255, 107, 53, 0.2)',
+            }}>
+              <Typography variant="body2" color="rgba(255, 255, 255, 0.8)">
+                💳 <strong>Your Balance:</strong> {walletBalance.toFixed(3)} SOL
+              </Typography>
+              {walletBalance < buyIn && (
+                <Typography variant="body2" color="error" sx={{ mt: 0.5 }}>
+                  ⚠️ Insufficient balance for this buy-in amount
+                </Typography>
+              )}
+            </Box>
+
+            {/* Error Display */}
+            {createGameError && (
+              <Box sx={{ 
+                p: 2, 
+                background: 'rgba(244, 67, 54, 0.1)', 
+                borderRadius: '12px',
+                border: '1px solid rgba(244, 67, 54, 0.3)',
+              }}>
+                <Typography variant="body2" color="error">
+                  ❌ {createGameError}
+                </Typography>
+              </Box>
+            )}
           </Box>
         </DialogContent>
 
@@ -415,7 +461,7 @@ export default function Header({ onCreateGame }: HeaderProps) {
           <Button
             variant="contained"
             onClick={handleCreateGame}
-            disabled={buyIn <= 0}
+            disabled={buyIn <= 0 || paymentLoading || walletBalance < buyIn}
             sx={{
               background: 'linear-gradient(135deg, #FF6B35 0%, #FF8C42 50%, #FF9A56 100%)',
               color: 'white',
@@ -435,7 +481,7 @@ export default function Header({ onCreateGame }: HeaderProps) {
               transition: 'all 0.3s ease',
             }}
           >
-            Create Game
+            {paymentLoading ? 'Processing Payment...' : 'Create Game & Pay'}
           </Button>
         </DialogActions>
       </Dialog>
