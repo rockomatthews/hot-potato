@@ -21,12 +21,25 @@ export default function WalletContextProvider({
   // Use environment variable to switch between networks
   const network = (process.env.NEXT_PUBLIC_SOLANA_NETWORK as WalletAdapterNetwork) || WalletAdapterNetwork.Devnet;
 
-  // You can also provide a custom RPC endpoint.
+  // RPC endpoint configuration with QuickNode support
   const endpoint = useMemo(() => {
-    if (process.env.NEXT_PUBLIC_SOLANA_RPC_ENDPOINT) {
-      return process.env.NEXT_PUBLIC_SOLANA_RPC_ENDPOINT;
+    const customEndpoint = process.env.NEXT_PUBLIC_SOLANA_RPC_ENDPOINT;
+    
+    if (customEndpoint) {
+      console.log('🚀 Using custom RPC endpoint:', customEndpoint.includes('quiknode') ? 'QuickNode' : 'Custom RPC');
+      return customEndpoint;
     }
+    
+    console.log('🌐 Using default Solana RPC for network:', network);
     return clusterApiUrl(network);
+  }, [network]);
+
+  // Log configuration on startup
+  useMemo(() => {
+    console.log('🔥 Hot Potato - Wallet Configuration:');
+    console.log('📡 Network:', network);
+    console.log('🏠 House wallet:', process.env.NEXT_PUBLIC_HOUSE_WALLET_ADDRESS || 'Not configured');
+    console.log('💰 House fee:', process.env.NEXT_PUBLIC_HOUSE_FEE_PERCENTAGE || '3%');
   }, [network]);
 
   const wallets = useMemo(

@@ -19,6 +19,7 @@ import {
 } from '@mui/material';
 import { Add, AccountBalanceWallet } from '@mui/icons-material';
 import ClientOnlyWalletButton from './ClientOnlyWalletButton';
+import NetworkIndicator from './NetworkIndicator';
 import Image from 'next/image';
 
 interface HeaderProps {
@@ -123,8 +124,9 @@ export default function Header({ onCreateGame }: HeaderProps) {
             </Typography>
           </Box>
 
-          {/* Right side - Wallet Info */}
+          {/* Right side - Network & Wallet Info */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <NetworkIndicator />
             {connected && publicKey ? (
               <Chip
                 icon={<AccountBalanceWallet />}
