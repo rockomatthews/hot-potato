@@ -14,8 +14,9 @@ import {
   Grid,
   CircularProgress,
   Alert,
+  IconButton,
 } from '@mui/material';
-import { CheckCircle, Cancel } from '@mui/icons-material';
+import { CheckCircle, Cancel, Add, PhotoCamera } from '@mui/icons-material';
 import { useUser } from '@/app/contexts/UserContext';
 
 interface ProfileSetupProps {
@@ -48,6 +49,7 @@ export default function ProfileSetup({ open, onClose, onComplete }: ProfileSetup
     error: null,
   });
   const [formError, setFormError] = useState<string | null>(null);
+  const [imageUploading, setImageUploading] = useState(false);
 
   // Debounced username check
   useEffect(() => {
@@ -132,6 +134,69 @@ export default function ProfileSetup({ open, onClose, onComplete }: ProfileSetup
     return null;
   };
 
+  // Image processing functions
+  const resizeImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      
+      img.onload = () => {
+        // Set canvas size (square, max 150px)
+        const size = Math.min(150, Math.max(img.width, img.height));
+        canvas.width = size;
+        canvas.height = size;
+        
+        // Calculate crop dimensions for center square
+        const cropSize = Math.min(img.width, img.height);
+        const cropX = (img.width - cropSize) / 2;
+        const cropY = (img.height - cropSize) / 2;
+        
+        // Draw and crop image
+        ctx?.drawImage(img, cropX, cropY, cropSize, cropSize, 0, 0, size, size);
+        
+        // Convert to base64 with compression
+        const base64 = canvas.toDataURL('image/jpeg', 0.8);
+        resolve(base64);
+      };
+      
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setFormError('Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setFormError('Image size must be less than 5MB');
+      return;
+    }
+
+    try {
+      setImageUploading(true);
+      setFormError(null);
+      
+      const resizedImage = await resizeImage(file);
+      setFormData(prev => ({ ...prev, profile_picture_url: resizedImage }));
+    } catch (err) {
+      console.error('Error processing image:', err);
+      setFormError('Failed to process image. Please try again.');
+    } finally {
+      setImageUploading(false);
+    }
+  };
+
+  const isCustomImage = (url: string) => url.startsWith('data:image/');
+
   return (
     <Dialog 
       open={open} 
@@ -186,6 +251,47 @@ export default function ProfileSetup({ open, onClose, onComplete }: ProfileSetup
                     </Avatar>
                   </Grid>
                 ))}
+                
+                {/* Upload Photo Button */}
+                <Grid item>
+                  <input
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    id="upload-photo"
+                    type="file"
+                    onChange={handleImageUpload}
+                  />
+                  <label htmlFor="upload-photo">
+                    <IconButton
+                      component="span"
+                      disabled={imageUploading}
+                      sx={{
+                        width: 48,
+                        height: 48,
+                        border: isCustomImage(formData.profile_picture_url) ? 3 : 1,
+                        borderColor: isCustomImage(formData.profile_picture_url) ? 'primary.main' : 'divider',
+                        borderStyle: 'solid',
+                        borderRadius: '50%',
+                        backgroundColor: 'rgba(255, 107, 53, 0.1)',
+                        '&:hover': {
+                          borderColor: 'primary.main',
+                          transform: 'scale(1.1)',
+                          backgroundColor: 'rgba(255, 107, 53, 0.2)',
+                        },
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      {imageUploading ? (
+                        <CircularProgress size={20} sx={{ color: '#FF8C42' }} />
+                      ) : (
+                        <>
+                          <Add sx={{ fontSize: '16px', color: '#FF8C42', position: 'absolute' }} />
+                          <PhotoCamera sx={{ fontSize: '20px', color: '#FF8C42', ml: 0.5 }} />
+                        </>
+                      )}
+                    </IconButton>
+                  </label>
+                </Grid>
               </Grid>
             </Box>
 
@@ -227,8 +333,16 @@ export default function ProfileSetup({ open, onClose, onComplete }: ProfileSetup
                 gap: 2,
               }}
             >
-              <Avatar sx={{ width: 40, height: 40, fontSize: '20px' }}>
-                {formData.profile_picture_url}
+              <Avatar 
+                src={isCustomImage(formData.profile_picture_url) ? formData.profile_picture_url : undefined}
+                sx={{ 
+                  width: 40, 
+                  height: 40, 
+                  fontSize: '20px',
+                  border: '2px solid rgba(255, 107, 53, 0.3)',
+                }}
+              >
+                {!isCustomImage(formData.profile_picture_url) ? formData.profile_picture_url : ''}
               </Avatar>
               <Box>
                 <Typography variant="body2" color="text.secondary">
@@ -237,6 +351,11 @@ export default function ProfileSetup({ open, onClose, onComplete }: ProfileSetup
                 <Typography variant="h6">
                   {formData.username || 'Your Username'}
                 </Typography>
+                {isCustomImage(formData.profile_picture_url) && (
+                  <Typography variant="caption" color="text.secondary">
+                    Custom photo uploaded ✓
+                  </Typography>
+                )}
               </Box>
             </Box>
           </Box>

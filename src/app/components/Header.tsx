@@ -63,6 +63,8 @@ export default function Header({ onCreateGame }: HeaderProps) {
     return `${address.slice(0, 4)}...${address.slice(-4)}`;
   };
 
+  const isCustomImage = (url: string) => url.startsWith('data:image/');
+
   return (
     <>
       <AppBar 
@@ -149,8 +151,11 @@ export default function Header({ onCreateGame }: HeaderProps) {
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Chip
                     avatar={
-                      <Avatar sx={{ width: 24, height: 24, fontSize: '14px' }}>
-                        {userProfile.profile_picture_url}
+                      <Avatar 
+                        src={userProfile.profile_picture_url && isCustomImage(userProfile.profile_picture_url) ? userProfile.profile_picture_url : undefined}
+                        sx={{ width: 24, height: 24, fontSize: '14px' }}
+                      >
+                        {userProfile.profile_picture_url && !isCustomImage(userProfile.profile_picture_url) ? userProfile.profile_picture_url : ''}
                       </Avatar>
                     }
                     label={userProfile.username}
