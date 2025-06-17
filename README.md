@@ -1,24 +1,86 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🔥 Hot Potato Game
 
-## Getting Started
+A Solana-based gambling game where only one player loses and everyone else wins! Built with Next.js, Material UI, and Phantom wallet integration.
 
-First, run the development server:
+## 🎮 How to Play
 
+1. **Connect Your Wallet**: Connect your Phantom wallet to join the game
+2. **Set Your Buy-in**: Choose how much SOL you want to wager (minimum 1 SOL)
+3. **Join the Game**: Click "Join Game" and wait for other players
+4. **Wait for Game to Fill**: Games support 5-10 players (configurable)
+5. **Game Starts Automatically**: Once the game is full, it starts automatically
+6. **Hot Potato**: The game randomly selects one loser after 5 seconds
+7. **Winners Split the Pot**: All other players split the total pot equally
+
+## 🚀 Getting Started
+
+1. Install dependencies:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Start the development server:
+```bash
+npm run dev
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. Connect your Phantom wallet and start playing!
+
+## 🛠 Tech Stack
+
+- **Next.js 14** - React framework with App Router
+- **Material UI** - Modern React component library
+- **Solana Web3.js** - Solana blockchain integration
+- **Phantom Wallet Adapter** - Wallet connection and management
+- **TypeScript** - Type safety
+- **Emotion** - CSS-in-JS styling for Material UI
+
+## 🎯 Game Features
+
+- **Simple Interface**: Clean, modern UI with Material UI components
+- **Wallet Integration**: Seamless Phantom wallet connection
+- **Real-time Updates**: Live game state updates
+- **Responsive Design**: Works on desktop and mobile
+- **Game History**: View game results and winnings
+- **Auto-start**: Games start automatically when full
+- **Fair Random Selection**: Random loser selection for fairness
+
+## ⚡ Game Rules
+
+- **Minimum Players**: 5 players required to start
+- **Maximum Players**: 10 players (configurable)
+- **Buy-in**: Any whole number of SOL (minimum 1)
+- **Winner Count**: All players except one (the loser)
+- **Payout**: Winners split the total pot equally
+- **Game Duration**: 5 seconds once started
+
+## 🔒 Security Notes
+
+- This is a **demo application** running on Solana Devnet
+- **No real SOL** is transferred - this is for educational purposes only
+- For production use, proper smart contracts and security audits would be required
+
+## 📝 Development
+
+To modify the game:
+
+- Game logic is in `src/app/contexts/GameContext.tsx`
+- UI components are in `src/app/components/HotPotatoGame.tsx`
+- Wallet integration is in `src/app/contexts/WalletContextProvider.tsx`
+- Material UI theme is configured in `src/app/layout.tsx`
+
+## 🎨 Customization
+
+You can easily customize:
+- Player limits (min/max players)
+- Game duration
+- UI colors and themes
+- Buy-in amounts
+- Payout distribution
+
+Enjoy playing Hot Potato! 🔥🥔
 
 ## Learn More
 
