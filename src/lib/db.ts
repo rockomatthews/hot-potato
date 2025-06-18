@@ -1,4 +1,8 @@
-import { neon } from '@neondatabase/serverless';
+import { neon, neonConfig } from '@neondatabase/serverless';
+import { Pool } from '@neondatabase/serverless';
+
+// Configure neon for serverless
+neonConfig.fetchConnectionCache = true;
 
 // Try multiple possible database URL environment variables
 function getDatabaseUrl() {
@@ -60,6 +64,10 @@ console.log('🔍 Database configuration:', {
   selectedUrl: databaseUrl ? '✅ Found connection string' : '❌ No connection string found'
 });
 
+// Create a connection pool for serverless environment
+const pool = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
+
+// Create a SQL client for direct queries
 const sql = databaseUrl ? neon(databaseUrl) : null;
 
 export interface UserProfile {
@@ -83,12 +91,12 @@ export interface UpdateUserProfile {
 }
 
 function ensureDatabaseConnection() {
-  if (!sql) {
+  if (!pool) {
     console.warn('⚠️ Database not available - Hot Potato game will run without user profiles');
     // Return null to indicate no database available
     return null;
   }
-  return sql;
+  return pool;
 }
 
 // Initialize the users table
@@ -101,7 +109,7 @@ export async function initializeDatabase() {
   }
   
   try {
-    await db`
+    await db.query(`
       CREATE TABLE IF NOT EXISTS user_profiles (
         id SERIAL PRIMARY KEY,
         wallet_address TEXT NOT NULL UNIQUE,
@@ -110,13 +118,13 @@ export async function initializeDatabase() {
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       )
-    `;
+    `);
     
     // Create index for faster lookups
-    await db`
+    await db.query(`
       CREATE INDEX IF NOT EXISTS idx_wallet_address ON user_profiles(wallet_address);
       CREATE INDEX IF NOT EXISTS idx_username ON user_profiles(username);
-    `;
+    `);
     
     console.log('✅ Database initialized successfully');
   } catch (error) {
@@ -135,12 +143,11 @@ export async function getUserByWallet(walletAddress: string): Promise<UserProfil
   }
   
   try {
-    const result = await db`
-      SELECT * FROM user_profiles 
-      WHERE wallet_address = ${walletAddress}
-      LIMIT 1
-    `;
-    return result[0] as UserProfile || null;
+    const result = await db.query(
+      'SELECT * FROM user_profiles WHERE wallet_address = $1 LIMIT 1',
+      [walletAddress]
+    );
+    return result.rows[0] as UserProfile || null;
   } catch (error) {
     console.error('Error fetching user by wallet:', error);
     return null;
@@ -156,12 +163,11 @@ export async function getUserByUsername(username: string): Promise<UserProfile |
   }
   
   try {
-    const result = await db`
-      SELECT * FROM user_profiles 
-      WHERE username = ${username}
-      LIMIT 1
-    `;
-    return result[0] as UserProfile || null;
+    const result = await db.query(
+      'SELECT * FROM user_profiles WHERE username = $1 LIMIT 1',
+      [username]
+    );
+    return result.rows[0] as UserProfile || null;
   } catch (error) {
     console.error('Error fetching user by username:', error);
     return null;
@@ -177,12 +183,11 @@ export async function createUser(userData: CreateUserProfile): Promise<UserProfi
   }
   
   try {
-    const result = await db`
-      INSERT INTO user_profiles (wallet_address, username, profile_picture_url)
-      VALUES (${userData.wallet_address}, ${userData.username}, ${userData.profile_picture_url || null})
-      RETURNING *
-    `;
-    return result[0] as UserProfile;
+    const result = await db.query(
+      'INSERT INTO user_profiles (wallet_address, username, profile_picture_url) VALUES ($1, $2, $3) RETURNING *',
+      [userData.wallet_address, userData.username, userData.profile_picture_url || null]
+    );
+    return result.rows[0] as UserProfile;
   } catch (error) {
     console.error('Error creating user:', error);
     throw error;
@@ -198,21 +203,16 @@ export async function updateUser(walletAddress: string, updates: UpdateUserProfi
   }
   
   try {
-    const result = await db`
-      UPDATE user_profiles 
-      SET 
-        username = COALESCE(${updates.username}, username),
-        profile_picture_url = COALESCE(${updates.profile_picture_url}, profile_picture_url),
-        updated_at = NOW()
-      WHERE wallet_address = ${walletAddress}
-      RETURNING *
-    `;
+    const result = await db.query(
+      'UPDATE user_profiles SET username = COALESCE($1, username), profile_picture_url = COALESCE($2, profile_picture_url), updated_at = NOW() WHERE wallet_address = $3 RETURNING *',
+      [updates.username, updates.profile_picture_url, walletAddress]
+    );
     
-    if (result.length === 0) {
+    if (result.rows.length === 0) {
       throw new Error('User not found');
     }
     
-    return result[0] as UserProfile;
+    return result.rows[0] as UserProfile;
   } catch (error) {
     console.error('Error updating user:', error);
     throw error;
@@ -231,20 +231,18 @@ export async function isUsernameAvailable(username: string, excludeWallet?: stri
     let result;
     
     if (excludeWallet) {
-      result = await db`
-        SELECT 1 FROM user_profiles 
-        WHERE username = ${username} AND wallet_address != ${excludeWallet}
-        LIMIT 1
-      `;
+      result = await db.query(
+        'SELECT 1 FROM user_profiles WHERE username = $1 AND wallet_address != $2 LIMIT 1',
+        [username, excludeWallet]
+      );
     } else {
-      result = await db`
-        SELECT 1 FROM user_profiles 
-        WHERE username = ${username}
-        LIMIT 1
-      `;
+      result = await db.query(
+        'SELECT 1 FROM user_profiles WHERE username = $1 LIMIT 1',
+        [username]
+      );
     }
     
-    return result.length === 0;
+    return result.rows.length === 0;
   } catch (error) {
     console.error('Error checking username availability:', error);
     return true;
@@ -261,7 +259,7 @@ export async function createGamesTable() {
   }
   
   try {
-    await db`
+    await db.query(`
       CREATE TABLE IF NOT EXISTS games (
         id VARCHAR(50) PRIMARY KEY,
         name VARCHAR(255) DEFAULT '',
@@ -280,12 +278,12 @@ export async function createGamesTable() {
         finished_at BIGINT,
         distribution_signature VARCHAR(255)
       );
-    `;
+    `);
     
     // Add name column if it doesn't exist (for existing databases)
-    await db`
+    await db.query(`
       ALTER TABLE games ADD COLUMN IF NOT EXISTS name VARCHAR(255) DEFAULT '';
-    `;
+    `);
     
     console.log('✅ Games table created/verified');
   } catch (error) {
@@ -304,7 +302,7 @@ export async function createGamePlayersTable() {
   }
   
   try {
-    await db`
+    await db.query(`
       CREATE TABLE IF NOT EXISTS game_players (
         id SERIAL PRIMARY KEY,
         game_id VARCHAR(50) NOT NULL,
@@ -315,7 +313,7 @@ export async function createGamePlayersTable() {
         joined_at BIGINT NOT NULL,
         UNIQUE(game_id, player_address)
       );
-    `;
+    `);
     
     console.log('✅ Game players table created/verified');
   } catch (error) {
@@ -334,7 +332,7 @@ export async function createTransactionsTable() {
   }
   
   try {
-    await db`
+    await db.query(`
       CREATE TABLE IF NOT EXISTS transactions (
         id SERIAL PRIMARY KEY,
         signature VARCHAR(255) UNIQUE NOT NULL,
@@ -347,7 +345,7 @@ export async function createTransactionsTable() {
         block_time BIGINT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
-    `;
+    `);
     
     console.log('✅ Transactions table created/verified');
   } catch (error) {
@@ -390,7 +388,7 @@ export async function saveGame(game: {
   }
   
   try {
-    await db`
+    await db.query(`
       INSERT INTO games (
         id, name, creator_address, buy_in_amount, max_players, min_players,
         total_pot, house_fee_collected, game_status, winner_addresses,
@@ -398,13 +396,7 @@ export async function saveGame(game: {
         finished_at, distribution_signature
       )
       VALUES (
-        ${game.id}, ${game.name || ''}, ${game.creatorAddress}, ${game.buyInAmount}, 
-        ${game.maxPlayers}, ${game.minPlayers}, ${game.totalPot}, 
-        ${game.houseFeeCollected}, ${game.gameStatus}, 
-        ${game.winnerAddresses ? JSON.stringify(game.winnerAddresses) : null},
-        ${game.loserAddress || null}, ${game.escrowPublicKey}, 
-        ${JSON.stringify(game.escrowSecretKey)}, ${game.createdAt},
-        ${game.finishedAt || null}, ${game.distributionSignature || null}
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
       )
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
@@ -415,7 +407,24 @@ export async function saveGame(game: {
         loser_address = EXCLUDED.loser_address,
         finished_at = EXCLUDED.finished_at,
         distribution_signature = EXCLUDED.distribution_signature;
-    `;
+    `, [
+      game.id,
+      game.name || '',
+      game.creatorAddress,
+      game.buyInAmount,
+      game.maxPlayers,
+      game.minPlayers,
+      game.totalPot,
+      game.houseFeeCollected,
+      game.gameStatus,
+      game.winnerAddresses ? JSON.stringify(game.winnerAddresses) : null,
+      game.loserAddress || null,
+      game.escrowPublicKey,
+      JSON.stringify(game.escrowSecretKey),
+      game.createdAt,
+      game.finishedAt || null,
+      game.distributionSignature || null
+    ]);
     
     console.log(`✅ Game ${game.id} saved to database`);
   } catch (error) {
@@ -441,20 +450,25 @@ export async function saveGamePlayer(player: {
   }
   
   try {
-    await db`
+    await db.query(`
       INSERT INTO game_players (
         game_id, player_address, buy_in_amount, transaction_signature,
         payment_confirmed, joined_at
       )
       VALUES (
-        ${player.gameId}, ${player.playerAddress}, ${player.buyInAmount},
-        ${player.transactionSignature || null}, ${player.paymentConfirmed}, 
-        ${player.joinedAt}
+        $1, $2, $3, $4, $5, $6
       )
       ON CONFLICT (game_id, player_address) DO UPDATE SET
         transaction_signature = EXCLUDED.transaction_signature,
         payment_confirmed = EXCLUDED.payment_confirmed;
-    `;
+    `, [
+      player.gameId,
+      player.playerAddress,
+      player.buyInAmount,
+      player.transactionSignature || null,
+      player.paymentConfirmed,
+      player.joinedAt
+    ]);
     
     console.log(`✅ Player ${player.playerAddress} saved to game ${player.gameId}`);
   } catch (error) {
@@ -482,21 +496,27 @@ export async function saveTransaction(transaction: {
   }
   
   try {
-    await db`
+    await db.query(`
       INSERT INTO transactions (
         signature, transaction_type, amount, from_address, to_address,
         game_id, status, block_time
       )
       VALUES (
-        ${transaction.signature}, ${transaction.transactionType}, ${transaction.amount},
-        ${transaction.fromAddress || null}, ${transaction.toAddress || null},
-        ${transaction.gameId || null}, ${transaction.status}, 
-        ${transaction.blockTime || null}
+        $1, $2, $3, $4, $5, $6, $7, $8
       )
       ON CONFLICT (signature) DO UPDATE SET
         status = EXCLUDED.status,
         block_time = EXCLUDED.block_time;
-    `;
+    `, [
+      transaction.signature,
+      transaction.transactionType,
+      transaction.amount,
+      transaction.fromAddress || null,
+      transaction.toAddress || null,
+      transaction.gameId || null,
+      transaction.status,
+      transaction.blockTime || null
+    ]);
     
     console.log(`✅ Transaction ${transaction.signature} saved`);
   } catch (error) {
@@ -514,16 +534,16 @@ export async function getUserTransactions(userAddress: string) {
   }
   
   try {
-    const result = await db`
+    const result = await db.query(`
       SELECT t.*, g.id as game_id
       FROM transactions t
       LEFT JOIN games g ON t.game_id = g.id
-      WHERE t.from_address = ${userAddress} OR t.to_address = ${userAddress}
+      WHERE t.from_address = $1 OR t.to_address = $1
       ORDER BY t.created_at DESC
       LIMIT 100;
-    `;
+    `, [userAddress]);
     
-    return result;
+    return result.rows;
   } catch (error) {
     console.error('❌ Error getting user transactions:', error);
     throw error;
@@ -539,15 +559,15 @@ export async function getUserGameHistory(userAddress: string) {
   }
   
   try {
-    const result = await db`
+    const result = await db.query(`
       SELECT DISTINCT g.*
       FROM games g
       JOIN game_players gp ON g.id = gp.game_id
-      WHERE gp.player_address = ${userAddress} OR g.creator_address = ${userAddress}
+      WHERE gp.player_address = $1 OR g.creator_address = $1
       ORDER BY g.created_at DESC;
-    `;
+    `, [userAddress]);
     
-    return result;
+    return result.rows;
   } catch (error) {
     console.error('❌ Error getting user game history:', error);
     throw error;
@@ -565,25 +585,25 @@ export async function loadAllGames() {
   
   try {
     // Get all games that are not finished
-    const games = await db`
+    const games = await db.query(`
       SELECT * FROM games 
       WHERE game_status IN ('waiting', 'full', 'playing')
       ORDER BY created_at DESC;
-    `;
+    `);
     
     // For each game, load its players and convert to Game interface format
     const gamesWithPlayers = await Promise.all(
-      games.map(async (game) => {
-        const players = await db`
+      games.rows.map(async (game) => {
+        const players = await db.query(`
           SELECT * FROM game_players 
-          WHERE game_id = ${game.id} AND payment_confirmed = true
+          WHERE game_id = $1 AND payment_confirmed = true
           ORDER BY joined_at ASC;
-        `;
+        `, [game.id]);
         
         return {
           id: game.id,
           name: game.name || `Game #${game.id}`,
-          players: players.map(p => ({
+          players: players.rows.map(p => ({
             publicKey: p.player_address,
             buyIn: parseFloat(p.buy_in_amount),
             address: p.player_address.slice(0, 8) + '...',
@@ -627,27 +647,27 @@ export async function loadUserGames(userAddress: string) {
   
   try {
     // Get games where user is creator or player
-    const games = await db`
+    const games = await db.query(`
       SELECT DISTINCT g.* FROM games g
       LEFT JOIN game_players gp ON g.id = gp.game_id
-      WHERE g.creator_address = ${userAddress} 
-         OR (gp.player_address = ${userAddress} AND gp.payment_confirmed = true)
+      WHERE g.creator_address = $1 
+         OR (gp.player_address = $1 AND gp.payment_confirmed = true)
       ORDER BY g.created_at DESC;
-    `;
+    `, [userAddress]);
     
     // For each game, load its players and convert to Game interface format
     const gamesWithPlayers = await Promise.all(
-      games.map(async (game) => {
-        const players = await db`
+      games.rows.map(async (game) => {
+        const players = await db.query(`
           SELECT * FROM game_players 
-          WHERE game_id = ${game.id} AND payment_confirmed = true
+          WHERE game_id = $1 AND payment_confirmed = true
           ORDER BY joined_at ASC;
-        `;
+        `, [game.id]);
         
         return {
           id: game.id,
           name: game.name || `Game #${game.id}`,
-          players: players.map(p => ({
+          players: players.rows.map(p => ({
             publicKey: p.player_address,
             buyIn: parseFloat(p.buy_in_amount),
             address: p.player_address.slice(0, 8) + '...',
@@ -693,37 +713,37 @@ export async function loadJoinableGames(userAddress?: string) {
     
     if (userAddress) {
       // Get waiting games where user is not already a player
-      games = await db`
+      games = await db.query(`
         SELECT g.* FROM games g
         WHERE g.game_status = 'waiting' 
           AND g.id NOT IN (
             SELECT gp.game_id FROM game_players gp 
-            WHERE gp.player_address = ${userAddress} AND gp.payment_confirmed = true
+            WHERE gp.player_address = $1 AND gp.payment_confirmed = true
           )
         ORDER BY g.created_at DESC;
-      `;
+      `, [userAddress]);
     } else {
       // Get all waiting games
-      games = await db`
+      games = await db.query(`
         SELECT * FROM games 
         WHERE game_status = 'waiting'
         ORDER BY created_at DESC;
-      `;
+      `);
     }
     
     // For each game, load its players and convert to Game interface format
     const gamesWithPlayers = await Promise.all(
-      games.map(async (game) => {
-        const players = await db`
+      games.rows.map(async (game) => {
+        const players = await db.query(`
           SELECT * FROM game_players 
-          WHERE game_id = ${game.id} AND payment_confirmed = true
+          WHERE game_id = $1 AND payment_confirmed = true
           ORDER BY joined_at ASC;
-        `;
+        `, [game.id]);
         
         return {
           id: game.id,
           name: game.name || `Game #${game.id}`,
-          players: players.map(p => ({
+          players: players.rows.map(p => ({
             publicKey: p.player_address,
             buyIn: parseFloat(p.buy_in_amount),
             address: p.player_address.slice(0, 8) + '...',
@@ -766,10 +786,10 @@ export async function removePlayerFromGame(gameId: string, playerAddress: string
   }
   
   try {
-    await db`
+    await db.query(`
       DELETE FROM game_players 
-      WHERE game_id = ${gameId} AND player_address = ${playerAddress};
-    `;
+      WHERE game_id = $1 AND player_address = $2;
+    `, [gameId, playerAddress]);
     
     console.log(`✅ Player ${playerAddress} removed from game ${gameId}`);
   } catch (error) {
