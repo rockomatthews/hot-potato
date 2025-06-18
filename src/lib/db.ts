@@ -2,20 +2,49 @@ import { neon } from '@neondatabase/serverless';
 
 // Try multiple possible database URL environment variables
 function getDatabaseUrl() {
-  return process.env.DATABASE_URL || 
-         process.env.POSTGRES_URL || 
-         process.env.POSTGRES_URL_NON_POOLING ||
-         process.env.POSTGRES_PRISMA_URL ||
-         process.env.NEON_DATABASE_URL;
+  // First try the direct URL variables
+  const directUrl = process.env.DATABASE_URL || 
+                   process.env.POSTGRES_URL || 
+                   process.env.POSTGRES_URL_NON_POOLING ||
+                   process.env.POSTGRES_PRISMA_URL ||
+                   process.env.NEON_DATABASE_URL;
+                   
+  if (directUrl) {
+    return directUrl;
+  }
+  
+  // If no direct URL, try to build one from components
+  const host = process.env.PGHOST || process.env.POSTGRES_HOST;
+  const user = process.env.PGUSER || process.env.POSTGRES_USER;
+  const password = process.env.PGPASSWORD || process.env.POSTGRES_PASSWORD;
+  const database = process.env.PGDATABASE || process.env.POSTGRES_DATABASE;
+  
+  if (host && user && password && database) {
+    const connectionString = `postgresql://${user}:${password}@${host}/${database}?sslmode=require`;
+    console.log('🔧 Built connection string from components');
+    return connectionString;
+  }
+  
+  return null;
 }
 
 const databaseUrl = getDatabaseUrl();
 
 console.log('🔍 Database configuration:', {
+  // Direct URL variables
   DATABASE_URL: process.env.DATABASE_URL ? '✅ Set' : '❌ Missing',
   POSTGRES_URL: process.env.POSTGRES_URL ? '✅ Set' : '❌ Missing', 
   POSTGRES_URL_NON_POOLING: process.env.POSTGRES_URL_NON_POOLING ? '✅ Set' : '❌ Missing',
   POSTGRES_PRISMA_URL: process.env.POSTGRES_PRISMA_URL ? '✅ Set' : '❌ Missing',
+  // Component variables
+  PGHOST: process.env.PGHOST ? '✅ Set' : '❌ Missing',
+  POSTGRES_HOST: process.env.POSTGRES_HOST ? '✅ Set' : '❌ Missing',
+  PGUSER: process.env.PGUSER ? '✅ Set' : '❌ Missing',
+  POSTGRES_USER: process.env.POSTGRES_USER ? '✅ Set' : '❌ Missing',
+  PGPASSWORD: process.env.PGPASSWORD ? '✅ Set' : '❌ Missing',
+  POSTGRES_PASSWORD: process.env.POSTGRES_PASSWORD ? '✅ Set' : '❌ Missing',
+  PGDATABASE: process.env.PGDATABASE ? '✅ Set' : '❌ Missing',
+  POSTGRES_DATABASE: process.env.POSTGRES_DATABASE ? '✅ Set' : '❌ Missing',
   selectedUrl: databaseUrl ? '✅ Found connection string' : '❌ No connection string found'
 });
 
@@ -45,10 +74,18 @@ function ensureDatabaseConnection() {
   if (!sql) {
     const currentUrl = getDatabaseUrl();
     const errorMessage = `Database connection not available. Environment check:
+    Direct URLs:
     - DATABASE_URL: ${process.env.DATABASE_URL ? 'Set' : 'Missing'}
     - POSTGRES_URL: ${process.env.POSTGRES_URL ? 'Set' : 'Missing'}
     - POSTGRES_URL_NON_POOLING: ${process.env.POSTGRES_URL_NON_POOLING ? 'Set' : 'Missing'}
     - POSTGRES_PRISMA_URL: ${process.env.POSTGRES_PRISMA_URL ? 'Set' : 'Missing'}
+    
+    Component Variables:
+    - PGHOST/POSTGRES_HOST: ${(process.env.PGHOST || process.env.POSTGRES_HOST) ? 'Set' : 'Missing'}
+    - PGUSER/POSTGRES_USER: ${(process.env.PGUSER || process.env.POSTGRES_USER) ? 'Set' : 'Missing'}
+    - PGPASSWORD/POSTGRES_PASSWORD: ${(process.env.PGPASSWORD || process.env.POSTGRES_PASSWORD) ? 'Set' : 'Missing'}
+    - PGDATABASE/POSTGRES_DATABASE: ${(process.env.PGDATABASE || process.env.POSTGRES_DATABASE) ? 'Set' : 'Missing'}
+    
     - Selected URL: ${currentUrl ? 'Found' : 'None found'}
     
     Please check your environment variables in Vercel.`;
