@@ -23,11 +23,12 @@ import {
   ListItemIcon,
   ListItemText,
 } from '@mui/material';
-import { Add, AccountBalanceWallet, MoreVert, Person, Edit } from '@mui/icons-material';
+import { Add, AccountBalanceWallet, MoreVert, Person, Edit, Receipt } from '@mui/icons-material';
 import ClientOnlyWalletButton from './ClientOnlyWalletButton';
 import NetworkIndicator from './NetworkIndicator';
 import ProfileSetup from './ProfileSetup';
 import Image from 'next/image';
+import TransactionHistory from './TransactionHistory';
 
 interface HeaderProps {
   onCreateGame: (buyIn: number, maxPlayers: number) => void;
@@ -43,6 +44,7 @@ export default function Header({ onCreateGame }: HeaderProps) {
   const [buyIn, setBuyIn] = useState(1);
   const [maxPlayers, setMaxPlayers] = useState(5);
   const [createGameError, setCreateGameError] = useState<string | null>(null);
+  const [transactionHistoryOpen, setTransactionHistoryOpen] = useState(false);
   
   const houseFeeInfo = getHouseFeeInfo();
 
@@ -266,6 +268,21 @@ export default function Header({ onCreateGame }: HeaderProps) {
                 <ClientOnlyWalletButton />
               </Box>
             )}
+
+            {/* Transaction History Button */}
+            <IconButton
+              onClick={() => setTransactionHistoryOpen(true)}
+              sx={{
+                color: '#FFB366',
+                '&:hover': { 
+                  backgroundColor: 'rgba(255, 107, 53, 0.1)',
+                  color: '#FF6B35'
+                }
+              }}
+              title="Transaction History"
+            >
+              <Receipt />
+            </IconButton>
           </Box>
         </Toolbar>
       </AppBar>
@@ -491,6 +508,11 @@ export default function Header({ onCreateGame }: HeaderProps) {
         open={profileSetupOpen}
         onClose={() => setProfileSetupOpen(false)}
         onComplete={() => setProfileSetupOpen(false)}
+      />
+
+      <TransactionHistory
+        open={transactionHistoryOpen}
+        onClose={() => setTransactionHistoryOpen(false)}
       />
     </>
   );

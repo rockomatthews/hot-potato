@@ -1,15 +1,25 @@
 'use client';
 
-import React, { createContext, useContext, useReducer, useEffect, useState } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useState, useCallback } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { PublicKey } from '@solana/web3.js';
+import toast from 'react-hot-toast';
+import { PublicKey, Keypair } from '@solana/web3.js';
 import { 
   getSolanaConnection, 
   createEscrowDepositTransaction, 
+  createWinningDistributionTransaction,
   solToLamports, 
   getWalletBalance,
-  generateGameEscrowAccount
+  generateGameEscrowAccount,
+  calculateGamePayouts,
+  sendAndConfirmTransaction
 } from '@/lib/solana';
+import { 
+  saveGame, 
+  saveGamePlayer, 
+  saveTransaction,
+  initializeGameTables 
+} from '@/lib/db';
 
 // House configuration
 const HOUSE_FEE_PERCENTAGE = parseFloat(process.env.NEXT_PUBLIC_HOUSE_FEE_PERCENTAGE || '0.03');
@@ -243,6 +253,113 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
   const [checkingBalance, setCheckingBalance] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
 
+  // Initialize database tables on mount
+  useEffect(() => {
+    const initializeDB = async () => {
+      try {
+        await initializeGameTables();
+        console.log('✅ Game database tables initialized');
+      } catch (error) {
+        console.error('❌ Failed to initialize game database:', error);
+      }
+    };
+    
+    initializeDB();
+  }, []);
+
+  // Distribute winnings when game finishes
+  const distributeWinnings = useCallback(async (game: Game): Promise<string> => {
+    if (!game.escrowAccount || !game.winner || game.winner.length === 0) {
+      throw new Error('Invalid game state for distribution');
+    }
+
+    const connection = getSolanaConnection();
+    const { blockhash } = await connection.getLatestBlockhash();
+    
+    // Recreate escrow keypair from stored secret key
+    const escrowKeypair = Keypair.fromSecretKey(new Uint8Array(game.escrowAccount.secretKey));
+    
+    // Calculate payouts
+    const payouts = calculateGamePayouts(
+      game.buyInAmount,
+      game.players.length,
+      HOUSE_FEE_PERCENTAGE
+    );
+    
+    // Create winner public keys
+    const winnerPubkeys = game.winner.map(winner => new PublicKey(winner));
+    const housePubkey = new PublicKey(HOUSE_WALLET_ADDRESS);
+    
+    // Create distribution transaction
+    const transaction = createWinningDistributionTransaction(
+      escrowKeypair,
+      winnerPubkeys,
+      payouts.amountPerWinner,
+      housePubkey,
+      payouts.houseFeeTotal,
+      blockhash
+    );
+    
+    // Send transaction (escrow account signs automatically)
+    const signature = await sendAndConfirmTransaction(connection, transaction, [escrowKeypair]);
+    
+    console.log(`🎉 Winnings distributed! Signature: ${signature}`);
+    console.log(`💰 Each winner received: ${payouts.amountPerWinner.toFixed(4)} SOL`);
+    console.log(`🏠 House fee collected: ${payouts.houseFeeTotal.toFixed(4)} SOL`);
+    
+    // Save distribution transaction to database
+    try {
+      await saveTransaction({
+        signature,
+        transactionType: 'winning',
+        amount: payouts.totalPot,
+        fromAddress: escrowKeypair.publicKey.toString(),
+        toAddress: game.winner.join(','), // Multiple winners
+        gameId: game.id,
+        status: 'confirmed',
+        blockTime: Date.now(),
+      });
+
+      // Save house fee transaction
+      if (payouts.houseFeeTotal > 0) {
+        await saveTransaction({
+          signature: `${signature}-house`,
+          transactionType: 'house_fee',
+          amount: payouts.houseFeeTotal,
+          fromAddress: escrowKeypair.publicKey.toString(),
+          toAddress: HOUSE_WALLET_ADDRESS,
+          gameId: game.id,
+          status: 'confirmed',
+          blockTime: Date.now(),
+        });
+      }
+
+      // Update game in database
+      await saveGame({
+        id: game.id,
+        creatorAddress: game.createdBy,
+        buyInAmount: game.buyInAmount,
+        maxPlayers: game.maxPlayers,
+        minPlayers: game.minPlayers,
+        totalPot: game.totalPot,
+        houseFeeCollected: game.houseFeeCollected,
+        gameStatus: 'finished',
+        winnerAddresses: game.winner,
+        loserAddress: game.loser,
+        escrowPublicKey: game.escrowAccount.publicKey,
+        escrowSecretKey: game.escrowAccount.secretKey,
+        createdAt: game.createdAt,
+        finishedAt: Date.now(),
+        distributionSignature: signature,
+      });
+    } catch (dbError) {
+      console.error('❌ Failed to save to database:', dbError);
+      // Don't throw here - the blockchain transaction already succeeded
+    }
+    
+    return signature;
+  }, []); // Empty dependency array since the function doesn't depend on changing values
+
   // Auto-start games when full and simulate gameplay
   useEffect(() => {
     const fullGames = state.games.filter(game => game.gameStatus === 'full');
@@ -252,10 +369,54 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
         dispatch({ type: 'START_GAME', payload: { gameId: game.id } });
         
         // Simulate the hot potato game - randomly pick a loser after a delay
-        const gameTimer = setTimeout(() => {
+        const gameTimer = setTimeout(async () => {
           const randomLoserIndex = Math.floor(Math.random() * game.players.length);
           const loser = game.players[randomLoserIndex].publicKey;
+          
+          // Finish the game first
           dispatch({ type: 'FINISH_GAME', payload: { gameId: game.id, loser } });
+          
+          // Then distribute winnings
+          try {
+            const finishedGame = state.games.find(g => g.id === game.id);
+            if (finishedGame) {
+              const updatedGame = {
+                ...finishedGame,
+                gameStatus: 'finished' as Game['gameStatus'],
+                loser,
+                winner: finishedGame.players
+                  .filter(p => p.publicKey !== loser)
+                  .map(p => p.publicKey),
+              };
+              
+              await distributeWinnings(updatedGame);
+              console.log(`🎮 Game ${game.id} completed with automatic payout!`);
+              
+              // Show toast notifications to players
+              if (publicKey) {
+                const userAddress = publicKey.toString();
+                if (updatedGame.winner?.includes(userAddress)) {
+                  const payouts = calculateGamePayouts(
+                    updatedGame.buyInAmount,
+                    updatedGame.players.length,
+                    HOUSE_FEE_PERCENTAGE
+                  );
+                  toast.success(`🎉 You won ${payouts.amountPerWinner.toFixed(4)} SOL!`, {
+                    icon: '🏆',
+                    duration: 6000,
+                  });
+                } else if (loser === userAddress) {
+                  toast.error(`💀 You lost this round! Better luck next time!`, {
+                    icon: '🥔',
+                    duration: 5000,
+                  });
+                }
+              }
+            }
+          } catch (error) {
+            console.error(`Failed to distribute winnings for game ${game.id}:`, error);
+            toast.error('Failed to distribute winnings. Please contact support.');
+          }
         }, 5000); // 5 second game duration
 
         return () => clearTimeout(gameTimer);
@@ -263,7 +424,7 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
 
       return () => clearTimeout(timer);
     });
-  }, [state.games]);
+  }, [state.games, distributeWinnings, publicKey]);
 
   const createGame = async (buyIn: number, maxPlayers: number) => {
     if (!publicKey || !signTransaction) return;
@@ -281,15 +442,67 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
         } 
       });
       
+      // Get the newly created game
+      const newGame = state.games[state.games.length - 1];
+      
       // Creator must also deposit their buy-in
-      const game = state.games[state.games.length - 1]; // Get the newly created game
-      if (game?.escrowAccount) {
-        await processPayment(publicKey, new PublicKey(game.escrowAccount.publicKey), buyIn);
+      if (newGame?.escrowAccount) {
+        const signature = await processPayment(publicKey, new PublicKey(newGame.escrowAccount.publicKey), buyIn);
+        
+        // Save game to database
+        try {
+          await saveGame({
+            id: newGame.id,
+            creatorAddress: publicKey.toString(),
+            buyInAmount: buyIn,
+            maxPlayers,
+            minPlayers: newGame.minPlayers,
+            totalPot: 0,
+            houseFeeCollected: 0,
+            gameStatus: 'waiting',
+            escrowPublicKey: newGame.escrowAccount.publicKey,
+            escrowSecretKey: newGame.escrowAccount.secretKey,
+            createdAt: newGame.createdAt,
+          });
+
+          // Save creator as first player
+          await saveGamePlayer({
+            gameId: newGame.id,
+            playerAddress: publicKey.toString(),
+            buyInAmount: buyIn,
+            transactionSignature: signature,
+            paymentConfirmed: true,
+            joinedAt: Date.now(),
+          });
+
+          // Save buy-in transaction
+          await saveTransaction({
+            signature,
+            transactionType: 'buy_in',
+            amount: buyIn,
+            fromAddress: publicKey.toString(),
+            toAddress: newGame.escrowAccount.publicKey,
+            gameId: newGame.id,
+            status: 'confirmed',
+            blockTime: Date.now(),
+          });
+        } catch (dbError) {
+          console.error('❌ Failed to save game to database:', dbError);
+        }
       }
       
       console.log('🎮 Game created and creator payment processed');
+      toast.success(`🎮 Game created! Buy-in: ${buyIn} SOL`, {
+        icon: '🔥',
+        duration: 5000,
+      });
     } catch (error) {
       console.error('Failed to create game:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create game';
+      toast.error(`Failed to create game: ${errorMessage}`, {
+        icon: '❌',
+        duration: 6000,
+      });
       throw error;
     } finally {
       setPaymentLoading(false);
@@ -301,6 +514,7 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
     
     try {
       setPaymentLoading(true);
+      toast.loading('Processing payment...', { id: 'join-payment' });
       
       const game = state.games.find(g => g.id === gameId);
       if (!game?.escrowAccount) {
@@ -320,9 +534,65 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
       };
 
       dispatch({ type: 'JOIN_GAME', payload: { gameId, player } });
+      
+      // Save to database
+      try {
+        await saveGamePlayer({
+          gameId,
+          playerAddress: publicKey.toString(),
+          buyInAmount: buyIn,
+          transactionSignature: signature,
+          paymentConfirmed: true,
+          joinedAt: Date.now(),
+        });
+
+        await saveTransaction({
+          signature,
+          transactionType: 'buy_in',
+          amount: buyIn,
+          fromAddress: publicKey.toString(),
+          toAddress: game.escrowAccount.publicKey,
+          gameId,
+          status: 'confirmed',
+          blockTime: Date.now(),
+        });
+
+        // Update game state in database
+        const updatedGame = state.games.find(g => g.id === gameId);
+        if (updatedGame) {
+          await saveGame({
+            id: updatedGame.id,
+            creatorAddress: updatedGame.createdBy,
+            buyInAmount: updatedGame.buyInAmount,
+            maxPlayers: updatedGame.maxPlayers,
+            minPlayers: updatedGame.minPlayers,
+            totalPot: updatedGame.totalPot,
+            houseFeeCollected: updatedGame.houseFeeCollected,
+            gameStatus: updatedGame.gameStatus,
+            escrowPublicKey: updatedGame.escrowAccount!.publicKey,
+            escrowSecretKey: updatedGame.escrowAccount!.secretKey,
+            createdAt: updatedGame.createdAt,
+          });
+        }
+      } catch (dbError) {
+        console.error('❌ Failed to save player to database:', dbError);
+      }
+      
       console.log('🎮 Player joined game and payment processed');
+      
+      toast.success(`🎯 Joined game! Paid ${buyIn} SOL`, {
+        id: 'join-payment',
+        icon: '✅',
+        duration: 4000,
+      });
     } catch (error) {
       console.error('Failed to join game:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to join game';
+      toast.error(`Failed to join game: ${errorMessage}`, {
+        id: 'join-payment',
+        icon: '❌',
+        duration: 6000,
+      });
       throw error;
     } finally {
       setPaymentLoading(false);
@@ -335,26 +605,32 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
       throw new Error('Wallet not connected');
     }
 
-    const connection = getSolanaConnection();
-    const { blockhash } = await connection.getLatestBlockhash();
-    
-    // Create transaction
-    const transaction = createEscrowDepositTransaction(
-      playerPublicKey,
-      escrowPublicKey,
-      solToLamports(amount),
-      blockhash
-    );
-    
-    // Sign and send transaction
-    const signedTransaction = await signTransaction(transaction);
-    const signature = await connection.sendRawTransaction(signedTransaction.serialize());
-    
-    // Wait for confirmation
-    await connection.confirmTransaction(signature);
-    
-    console.log(`💰 Payment of ${amount} SOL sent to escrow. Signature: ${signature}`);
-    return signature;
+    try {
+      const connection = getSolanaConnection();
+      const { blockhash } = await connection.getLatestBlockhash();
+      
+      // Create transaction
+      const transaction = createEscrowDepositTransaction(
+        playerPublicKey,
+        escrowPublicKey,
+        solToLamports(amount),
+        blockhash
+      );
+      
+      // Sign and send transaction
+      const signedTransaction = await signTransaction(transaction);
+      const signature = await connection.sendRawTransaction(signedTransaction.serialize());
+      
+      // Wait for confirmation
+      await connection.confirmTransaction(signature);
+      
+      console.log(`💰 Payment of ${amount} SOL sent to escrow. Signature: ${signature}`);
+      
+      return signature;
+    } catch (error) {
+      console.error('Payment failed:', error);
+      throw new Error(`Payment failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
   const getJoinableGames = () => {
