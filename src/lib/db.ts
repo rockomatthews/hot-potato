@@ -1,6 +1,25 @@
 import { neon } from '@neondatabase/serverless';
 
-const sql = process.env.DATABASE_URL ? neon(process.env.DATABASE_URL) : null;
+// Try multiple possible database URL environment variables
+function getDatabaseUrl() {
+  return process.env.DATABASE_URL || 
+         process.env.POSTGRES_URL || 
+         process.env.POSTGRES_URL_NON_POOLING ||
+         process.env.POSTGRES_PRISMA_URL ||
+         process.env.NEON_DATABASE_URL;
+}
+
+const databaseUrl = getDatabaseUrl();
+
+console.log('🔍 Database configuration:', {
+  DATABASE_URL: process.env.DATABASE_URL ? '✅ Set' : '❌ Missing',
+  POSTGRES_URL: process.env.POSTGRES_URL ? '✅ Set' : '❌ Missing', 
+  POSTGRES_URL_NON_POOLING: process.env.POSTGRES_URL_NON_POOLING ? '✅ Set' : '❌ Missing',
+  POSTGRES_PRISMA_URL: process.env.POSTGRES_PRISMA_URL ? '✅ Set' : '❌ Missing',
+  selectedUrl: databaseUrl ? '✅ Found connection string' : '❌ No connection string found'
+});
+
+const sql = databaseUrl ? neon(databaseUrl) : null;
 
 export interface UserProfile {
   id: number;
@@ -24,7 +43,18 @@ export interface UpdateUserProfile {
 
 function ensureDatabaseConnection() {
   if (!sql) {
-    throw new Error('Database connection not available. Please check DATABASE_URL environment variable.');
+    const currentUrl = getDatabaseUrl();
+    const errorMessage = `Database connection not available. Environment check:
+    - DATABASE_URL: ${process.env.DATABASE_URL ? 'Set' : 'Missing'}
+    - POSTGRES_URL: ${process.env.POSTGRES_URL ? 'Set' : 'Missing'}
+    - POSTGRES_URL_NON_POOLING: ${process.env.POSTGRES_URL_NON_POOLING ? 'Set' : 'Missing'}
+    - POSTGRES_PRISMA_URL: ${process.env.POSTGRES_PRISMA_URL ? 'Set' : 'Missing'}
+    - Selected URL: ${currentUrl ? 'Found' : 'None found'}
+    
+    Please check your environment variables in Vercel.`;
+    
+    console.error('❌ Database connection failed:', errorMessage);
+    throw new Error(errorMessage);
   }
   return sql;
 }
