@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useGame } from '../contexts/GameContext';
 import { useUser } from '../contexts/UserContext';
@@ -49,12 +49,8 @@ export default function Header({ onCreateGame }: HeaderProps) {
   
   const houseFeeInfo = getHouseFeeInfo();
 
-  // Show profile setup when wallet connects but no profile exists
-  useEffect(() => {
-    if (connected && !userLoading && !hasProfile) {
-      setProfileSetupOpen(true);
-    }
-  }, [connected, hasProfile, userLoading]);
+  // Profile setup is now only accessible via "Edit Profile" menu item
+  // Removed auto-opening behavior that was triggered on every page load
 
   const handleCreateGame = async () => {
     try {

@@ -295,14 +295,26 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
         console.log('✅ Game database tables initialized');
         
         // Load existing games from database
-        await refreshGames();
+        setGamesLoading(true);
+        try {
+          const allGames = await loadAllGames();
+          dispatch({ 
+            type: 'LOAD_GAMES', 
+            payload: { games: allGames } 
+          });
+          console.log(`🔄 Loaded ${allGames.length} games from database on initialization`);
+        } catch (error) {
+          console.error('❌ Failed to load games from database:', error);
+        } finally {
+          setGamesLoading(false);
+        }
       } catch (error) {
         console.error('❌ Failed to initialize game database:', error);
       }
     };
     
     initializeDB();
-  }, [refreshGames]);
+  }, []); // Remove refreshGames dependency to prevent infinite loops
 
   // Distribute winnings when game finishes
   const distributeWinnings = useCallback(async (game: Game): Promise<string> => {
@@ -480,8 +492,12 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
         } 
       });
       
-      // Get the newly created game
+      // Get the newly created game (should be the last one added)
       const newGame = state.games[state.games.length - 1];
+      
+      if (!newGame) {
+        throw new Error('Failed to create game in local state');
+      }
       
       // Creator must also deposit their buy-in
       if (newGame?.escrowAccount) {
@@ -530,8 +546,12 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
         }
       }
       
-      // Refresh games to ensure UI shows the latest data
-      await refreshGames();
+      // Try to refresh games from database, but don't fail if it doesn't work
+      try {
+        await refreshGames();
+      } catch (refreshError) {
+        console.warn('⚠️ Failed to refresh games from database, but game creation succeeded:', refreshError);
+      }
       
       console.log('🎮 Game created and creator payment processed');
       toast.success(`🎮 Game created! Buy-in: ${buyIn} SOL`, {
@@ -620,8 +640,12 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
         console.error('❌ Failed to save player to database:', dbError);
       }
       
-      // Refresh games to ensure UI shows the latest data
-      await refreshGames();
+      // Try to refresh games from database, but don't fail if it doesn't work
+      try {
+        await refreshGames();
+      } catch (refreshError) {
+        console.warn('⚠️ Failed to refresh games from database, but join succeeded:', refreshError);
+      }
       
       console.log('🎮 Player joined game and payment processed');
       
@@ -751,8 +775,12 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
         } 
       });
       
-      // Refresh games to ensure consistency
-      await refreshGames();
+      // Try to refresh games from database for consistency
+      try {
+        await refreshGames();
+      } catch (refreshError) {
+        console.warn('⚠️ Failed to refresh games from database, but leave succeeded:', refreshError);
+      }
       
       toast.success('Left the game', { icon: '👋' });
     } catch (error) {
