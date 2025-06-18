@@ -10,10 +10,10 @@ import {
 // Get connection based on environment
 export function getSolanaConnection(): Connection {
   const network = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
-  const customRPC = process.env.NEXT_PUBLIC_QUICKNODE_RPC_URL;
+  const customRPC = process.env.NEXT_PUBLIC_SOLANA_RPC_ENDPOINT;
   
-  if (customRPC && network === 'mainnet-beta') {
-    console.log('🚀 Using custom RPC endpoint: QuickNode');
+  if (customRPC) {
+    console.log('🚀 Using custom RPC endpoint:', customRPC.includes('quiknode') ? 'QuickNode' : 'Custom RPC');
     return new Connection(customRPC, 'confirmed');
   }
   
@@ -21,6 +21,7 @@ export function getSolanaConnection(): Connection {
     ? 'https://api.mainnet-beta.solana.com'
     : 'https://api.devnet.solana.com';
     
+  console.log('🌐 Using default Solana RPC for network:', network);
   return new Connection(rpcUrl, 'confirmed');
 }
 
