@@ -34,7 +34,7 @@ export default function RootLayout({
         }}
       >
         <Providers>
-          {children}
+              {children}
         </Providers>
         <Toaster
           position="top-right"

@@ -87,11 +87,11 @@ export default function HotPotatoGame() {
                   <SportsEsports sx={{ fontSize: 48, color: '#FF6B35', mb: 2 }} />
                   <Typography variant="h6" color="white" gutterBottom>
                     Simple to Play
-                  </Typography>
+        </Typography>
                   <Typography variant="body2" color="rgba(255, 255, 255, 0.7)">
                     Just buy in and wait for the table to fill up
-                  </Typography>
-                </Box>
+        </Typography>
+        </Box>
               </Grid>
               <Grid item xs={12} md={4}>
                 <Box sx={{ textAlign: 'center' }}>
@@ -102,7 +102,7 @@ export default function HotPotatoGame() {
                   <Typography variant="body2" color="rgba(255, 255, 255, 0.7)">
                     Winners split the loser&apos;s buy-in equally
                   </Typography>
-                </Box>
+      </Box>
               </Grid>
               <Grid item xs={12} md={4}>
                 <Box sx={{ textAlign: 'center' }}>
@@ -113,7 +113,7 @@ export default function HotPotatoGame() {
                   <Typography variant="body2" color="rgba(255, 255, 255, 0.7)">
                     No skill required - it&apos;s all about timing!
                   </Typography>
-                </Box>
+                  </Box>
               </Grid>
             </Grid>
 
@@ -149,7 +149,7 @@ export default function HotPotatoGame() {
               variant="h3" 
               component="h2" 
               gutterBottom
-              sx={{ 
+                          sx={{
                 fontWeight: 'bold',
                 color: 'white',
                 display: 'flex',
@@ -164,7 +164,7 @@ export default function HotPotatoGame() {
             <Typography variant="h6" color="rgba(255, 255, 255, 0.7)">
               Track your hot potato adventures
             </Typography>
-          </Box>
+                              </Box>
 
           {userGames.length > 0 ? (
             <Grid container spacing={3}>
@@ -219,9 +219,9 @@ export default function HotPotatoGame() {
               variant="h3" 
               component="h2" 
               gutterBottom
-              sx={{ 
+                sx={{ 
                 fontWeight: 'bold',
-                color: 'white',
+                  color: 'white',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -233,8 +233,8 @@ export default function HotPotatoGame() {
             </Typography>
             <Typography variant="h6" color="rgba(255, 255, 255, 0.7)">
               Join a hot potato game and test your luck!
-            </Typography>
-          </Box>
+                 </Typography>
+                    </Box>
 
           {joinableGames.length > 0 ? (
             <Grid container spacing={3}>
@@ -258,18 +258,18 @@ export default function HotPotatoGame() {
               textAlign: 'center',
               py: 6,
             }}>
-              <CardContent>
+                <CardContent>
                 <Typography variant="h6" color="white" gutterBottom>
                   No games available right now! 🕰️
-                </Typography>
+                  </Typography>
                 <Typography variant="body2" color="rgba(255, 255, 255, 0.7)" sx={{ mb: 3 }}>
                   Be the first to create a hot potato game and let others join the fun!
-                </Typography>
+                      </Typography>
                 <Typography variant="body2" color="rgba(255, 255, 255, 0.5)">
                   Click &quot;Create Game of Potato&quot; in the top-left corner to get started.
-                </Typography>
-              </CardContent>
-            </Card>
+                        </Typography>
+                </CardContent>
+              </Card>
           )}
         </Box>
 
@@ -293,7 +293,7 @@ export default function HotPotatoGame() {
             </CardContent>
           </Card>
         </Box>
-      </Container>
+    </Container>
     </>
   );
 } 

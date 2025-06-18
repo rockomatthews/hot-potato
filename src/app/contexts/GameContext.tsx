@@ -91,7 +91,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         },
         paymentStatus: 'pending',
       };
-
+      
       return {
         ...state,
         games: [...state.games, newGame],
@@ -161,12 +161,12 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         ? [...state.userGames.slice(0, userGameIndex), updatedGame, ...state.userGames.slice(userGameIndex + 1)]
         : state.userGames;
 
-      return {
-        ...state,
+        return {
+          ...state,
         games: newGames,
         userGames: newUserGames,
-      };
-    }
+        };
+      }
 
     case 'FINISH_GAME': {
       const gameIndex = state.games.findIndex(g => g.id === action.payload.gameId);
@@ -177,7 +177,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       const winners = game.players
         .filter(p => p.publicKey !== loser)
         .map(p => p.publicKey);
-
+      
       const updatedGame = {
         ...game,
         gameStatus: 'finished' as Game['gameStatus'],
@@ -525,13 +525,13 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
       const signature = await processPayment(publicKey, new PublicKey(game.escrowAccount.publicKey), buyIn);
       
       // Add player to game after successful payment
-      const player: Player = {
-        publicKey: publicKey.toString(),
-        buyIn,
-        address: publicKey.toString().slice(0, 8) + '...',
+    const player: Player = {
+      publicKey: publicKey.toString(),
+      buyIn,
+      address: publicKey.toString().slice(0, 8) + '...',
         paymentConfirmed: true,
         transactionSignature: signature,
-      };
+    };
 
       dispatch({ type: 'JOIN_GAME', payload: { gameId, player } });
       
