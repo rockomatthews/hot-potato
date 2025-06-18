@@ -43,6 +43,7 @@ export default function Header({ onCreateGame }: HeaderProps) {
   const [profileMenuAnchor, setProfileMenuAnchor] = useState<null | HTMLElement>(null);
   const [buyIn, setBuyIn] = useState(1);
   const [maxPlayers, setMaxPlayers] = useState(5);
+  const [gameName, setGameName] = useState('');
   const [createGameError, setCreateGameError] = useState<string | null>(null);
   const [transactionHistoryOpen, setTransactionHistoryOpen] = useState(false);
   
@@ -65,11 +66,12 @@ export default function Header({ onCreateGame }: HeaderProps) {
         return;
       }
       
-      await createGame(buyIn, maxPlayers);
+      await createGame(gameName || `Potato Game ${Date.now()}`, buyIn, maxPlayers);
       onCreateGame(buyIn, maxPlayers); // Keep compatibility with parent component
       setCreateGameOpen(false);
       setBuyIn(1);
       setMaxPlayers(5);
+      setGameName('');
     } catch (error) {
       console.error('Failed to create game:', error);
       setCreateGameError(error instanceof Error ? error.message : 'Failed to create game');
@@ -320,6 +322,42 @@ export default function Header({ onCreateGame }: HeaderProps) {
         
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 2 }}>
+            <TextField
+              fullWidth
+              label="Game Name (optional)"
+              value={gameName}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setGameName(e.target.value)}
+              placeholder="Enter a fun name for your game..."
+              variant="outlined"
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  backgroundColor: 'rgba(255, 107, 53, 0.05)',
+                  borderRadius: '12px',
+                  '& fieldset': {
+                    borderColor: 'rgba(255, 107, 53, 0.3)',
+                    borderWidth: '2px',
+                  },
+                  '&:hover fieldset': {
+                    borderColor: 'rgba(255, 107, 53, 0.5)',
+                  },
+                  '&.Mui-focused fieldset': {
+                    borderColor: '#FF8C42',
+                  },
+                },
+                '& .MuiInputLabel-root': {
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  '&.Mui-focused': {
+                    color: '#FF8C42',
+                  },
+                },
+                '& input': {
+                  color: 'white',
+                  fontSize: '1.1rem',
+                  fontWeight: '500',
+                },
+              }}
+            />
+            
             <TextField
               fullWidth
               label="Buy-in Amount (SOL)"

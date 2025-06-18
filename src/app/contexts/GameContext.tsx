@@ -35,6 +35,7 @@ export interface Player {
 
 export interface Game {
   id: string;
+  name: string; // Game name set by creator
   players: Player[];
   gameStatus: 'waiting' | 'full' | 'playing' | 'finished';
   maxPlayers: number;
@@ -59,7 +60,7 @@ export interface GameState {
 }
 
 type GameAction =
-  | { type: 'CREATE_GAME'; payload: { buyIn: number; maxPlayers: number; createdBy: string } }
+  | { type: 'CREATE_GAME'; payload: { name: string; buyIn: number; maxPlayers: number; createdBy: string } }
   | { type: 'JOIN_GAME'; payload: { gameId: string; player: Player } }
   | { type: 'START_GAME'; payload: { gameId: string } }
   | { type: 'FINISH_GAME'; payload: { gameId: string; loser: string } }
@@ -76,6 +77,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       const escrowAccount = generateGameEscrowAccount();
       const newGame: Game = {
         id: Math.random().toString(36).substr(2, 9),
+        name: action.payload.name,
         players: [],
         gameStatus: 'waiting',
         maxPlayers: action.payload.maxPlayers,
@@ -234,8 +236,9 @@ function gameReducer(state: GameState, action: GameAction): GameState {
 
 interface GameContextType {
   state: GameState;
-  createGame: (buyIn: number, maxPlayers: number) => Promise<void>;
+  createGame: (name: string, buyIn: number, maxPlayers: number) => Promise<void>;
   joinGame: (gameId: string, buyIn: number) => Promise<void>;
+  leaveGame: (gameId: string) => Promise<void>;
   getJoinableGames: () => Game[];
   getUserGames: () => Game[];
   getHouseFeeInfo: () => { percentage: number; address: string };
@@ -426,7 +429,7 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
     });
   }, [state.games, distributeWinnings, publicKey]);
 
-  const createGame = async (buyIn: number, maxPlayers: number) => {
+  const createGame = async (name: string, buyIn: number, maxPlayers: number) => {
     if (!publicKey || !signTransaction) return;
     
     try {
@@ -436,6 +439,7 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
       dispatch({ 
         type: 'CREATE_GAME', 
         payload: { 
+          name,
           buyIn, 
           maxPlayers, 
           createdBy: publicKey.toString() 
@@ -675,6 +679,31 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
     return () => clearInterval(interval);
   }, [publicKey]);
 
+  const leaveGame = async (gameId: string) => {
+    if (!publicKey) return;
+    
+    const game = state.games.find(g => g.id === gameId);
+    if (!game || game.gameStatus !== 'waiting') {
+      toast.error('Cannot leave this game');
+      return;
+    }
+    
+    // For now, just remove the player from the game
+    // In a real implementation, you might need to handle refunds
+    dispatch({ 
+      type: 'UPDATE_GAME', 
+      payload: { 
+        gameId, 
+        updates: { 
+          players: game.players.filter(p => p.publicKey !== publicKey.toString()),
+          totalPot: game.totalPot - (game.players.find(p => p.publicKey === publicKey.toString())?.buyIn || 0) * (1 - HOUSE_FEE_PERCENTAGE)
+        } 
+      } 
+    });
+    
+    toast.success('Left the game', { icon: '👋' });
+  };
+
   const getHouseFeeInfo = () => ({
     percentage: HOUSE_FEE_PERCENTAGE,
     address: HOUSE_WALLET_ADDRESS,
@@ -685,6 +714,7 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
       state,
       createGame,
       joinGame,
+      leaveGame,
       getJoinableGames,
       getUserGames,
       getHouseFeeInfo,

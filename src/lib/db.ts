@@ -2,6 +2,16 @@ import { neon } from '@neondatabase/serverless';
 
 // Try multiple possible database URL environment variables
 function getDatabaseUrl() {
+  // Debug: Log all possible environment variables at runtime
+  if (typeof window === 'undefined') { // Server-side only
+    console.log('🔍 Runtime environment variables check:');
+    console.log('NODE_ENV:', process.env.NODE_ENV);
+    console.log('VERCEL:', process.env.VERCEL);
+    console.log('Available env keys:', Object.keys(process.env).filter(k => 
+      k.includes('DATABASE') || k.includes('POSTGRES') || k.includes('PG')
+    ));
+  }
+  
   // First try the direct URL variables
   const directUrl = process.env.DATABASE_URL || 
                    process.env.POSTGRES_URL || 
@@ -10,6 +20,7 @@ function getDatabaseUrl() {
                    process.env.NEON_DATABASE_URL;
                    
   if (directUrl) {
+    console.log('✅ Found direct database URL');
     return directUrl;
   }
   
@@ -25,6 +36,7 @@ function getDatabaseUrl() {
     return connectionString;
   }
   
+  console.log('❌ No database connection string found');
   return null;
 }
 

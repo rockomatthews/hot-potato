@@ -28,12 +28,13 @@ import { Game } from '../contexts/GameContext';
 interface GameCardProps {
   game: Game;
   onJoinGame?: (gameId: string, buyIn: number) => Promise<void>;
+  onLeaveGame?: (gameId: string) => Promise<void>;
   isUserGame?: boolean;
   walletBalance?: number;
   paymentLoading?: boolean;
 }
 
-export default function GameCard({ game, onJoinGame, isUserGame = false, walletBalance = 0, paymentLoading = false }: GameCardProps) {
+export default function GameCard({ game, onJoinGame, onLeaveGame, isUserGame = false, walletBalance = 0, paymentLoading = false }: GameCardProps) {
   const { connected, publicKey } = useWallet();
   
   const isUserInGame = publicKey && game.players.some(p => p.publicKey === publicKey.toString());
@@ -85,6 +86,12 @@ export default function GameCard({ game, onJoinGame, isUserGame = false, walletB
     }
   };
 
+  const handleLeaveGame = async () => {
+    if (onLeaveGame && connected) {
+      await onLeaveGame(game.id);
+    }
+  };
+
   const hasInsufficientBalance = walletBalance < game.buyInAmount;
 
   return (
@@ -113,7 +120,7 @@ export default function GameCard({ game, onJoinGame, isUserGame = false, walletB
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
           <Box>
             <Typography variant="h6" component="h3" gutterBottom sx={{ fontWeight: 'bold' }}>
-              Game #{game.id}
+              {game.name || `Game #${game.id}`}
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
               <AccessTime sx={{ fontSize: 16, color: 'text.secondary' }} />
@@ -285,7 +292,7 @@ export default function GameCard({ game, onJoinGame, isUserGame = false, walletB
         )}
       </CardContent>
 
-      {/* Action Button */}
+      {/* Action Buttons */}
       {game.gameStatus === 'waiting' && !isUserInGame && onJoinGame && (
         <Box sx={{ p: 3, pt: 0 }}>
           {hasInsufficientBalance && (
@@ -316,6 +323,36 @@ export default function GameCard({ game, onJoinGame, isUserGame = false, walletB
             }}
           >
             {paymentLoading ? 'Processing Payment...' : `Join for ${game.buyInAmount} SOL`}
+          </Button>
+        </Box>
+      )}
+
+      {/* Leave Game Button for users already in the game */}
+      {game.gameStatus === 'waiting' && isUserInGame && onLeaveGame && (
+        <Box sx={{ p: 3, pt: 0 }}>
+          <Button
+            fullWidth
+            variant="outlined"
+            size="large"
+            onClick={handleLeaveGame}
+            disabled={!connected || paymentLoading}
+            sx={{
+              borderColor: '#ff5722',
+              color: '#ff5722',
+              fontWeight: 'bold',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 87, 34, 0.1)',
+                borderColor: '#ff5722',
+              },
+              '&:disabled': {
+                borderColor: 'rgba(255, 87, 34, 0.3)',
+                color: 'rgba(255, 87, 34, 0.5)',
+              },
+              borderRadius: '12px',
+              py: 1.5,
+            }}
+          >
+            👋 Leave Game
           </Button>
         </Box>
       )}
