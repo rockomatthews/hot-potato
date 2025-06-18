@@ -264,6 +264,7 @@ export async function createGamesTable() {
     await db`
       CREATE TABLE IF NOT EXISTS games (
         id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(255) DEFAULT '',
         creator_address VARCHAR(255) NOT NULL,
         buy_in_amount DECIMAL(10, 8) NOT NULL,
         max_players INTEGER NOT NULL,
@@ -279,6 +280,11 @@ export async function createGamesTable() {
         finished_at BIGINT,
         distribution_signature VARCHAR(255)
       );
+    `;
+    
+    // Add name column if it doesn't exist (for existing databases)
+    await db`
+      ALTER TABLE games ADD COLUMN IF NOT EXISTS name VARCHAR(255) DEFAULT '';
     `;
     
     console.log('✅ Games table created/verified');
@@ -360,6 +366,7 @@ export async function initializeGameTables() {
 // Save game to database
 export async function saveGame(game: {
   id: string;
+  name?: string;
   creatorAddress: string;
   buyInAmount: number;
   maxPlayers: number;
@@ -385,13 +392,13 @@ export async function saveGame(game: {
   try {
     await db`
       INSERT INTO games (
-        id, creator_address, buy_in_amount, max_players, min_players,
+        id, name, creator_address, buy_in_amount, max_players, min_players,
         total_pot, house_fee_collected, game_status, winner_addresses,
         loser_address, escrow_public_key, escrow_secret_key, created_at,
         finished_at, distribution_signature
       )
       VALUES (
-        ${game.id}, ${game.creatorAddress}, ${game.buyInAmount}, 
+        ${game.id}, ${game.name || ''}, ${game.creatorAddress}, ${game.buyInAmount}, 
         ${game.maxPlayers}, ${game.minPlayers}, ${game.totalPot}, 
         ${game.houseFeeCollected}, ${game.gameStatus}, 
         ${game.winnerAddresses ? JSON.stringify(game.winnerAddresses) : null},
@@ -400,6 +407,7 @@ export async function saveGame(game: {
         ${game.finishedAt || null}, ${game.distributionSignature || null}
       )
       ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
         total_pot = EXCLUDED.total_pot,
         house_fee_collected = EXCLUDED.house_fee_collected,
         game_status = EXCLUDED.game_status,
@@ -542,6 +550,230 @@ export async function getUserGameHistory(userAddress: string) {
     return result;
   } catch (error) {
     console.error('❌ Error getting user game history:', error);
+    throw error;
+  }
+}
+
+// Load all active games from database
+export async function loadAllGames() {
+  const db = ensureDatabaseConnection();
+  
+  if (!db) {
+    console.log('⚠️ Cannot load games - no database connection');
+    return [];
+  }
+  
+  try {
+    // Get all games that are not finished
+    const games = await db`
+      SELECT * FROM games 
+      WHERE game_status IN ('waiting', 'full', 'playing')
+      ORDER BY created_at DESC;
+    `;
+    
+    // For each game, load its players and convert to Game interface format
+    const gamesWithPlayers = await Promise.all(
+      games.map(async (game) => {
+        const players = await db`
+          SELECT * FROM game_players 
+          WHERE game_id = ${game.id} AND payment_confirmed = true
+          ORDER BY joined_at ASC;
+        `;
+        
+        return {
+          id: game.id,
+          name: game.name || `Game #${game.id}`,
+          players: players.map(p => ({
+            publicKey: p.player_address,
+            buyIn: parseFloat(p.buy_in_amount),
+            address: p.player_address.slice(0, 8) + '...',
+            transactionSignature: p.transaction_signature,
+            paymentConfirmed: p.payment_confirmed,
+          })),
+          gameStatus: game.game_status as 'waiting' | 'full' | 'playing' | 'finished',
+          maxPlayers: game.max_players,
+          minPlayers: game.min_players,
+          buyInAmount: parseFloat(game.buy_in_amount),
+          totalPot: parseFloat(game.total_pot || '0'),
+          houseFeeCollected: parseFloat(game.house_fee_collected || '0'),
+          createdBy: game.creator_address,
+          createdAt: game.created_at,
+          winner: game.winner_addresses ? JSON.parse(game.winner_addresses) : undefined,
+          loser: game.loser_address,
+          escrowAccount: game.escrow_public_key ? {
+            publicKey: game.escrow_public_key,
+            secretKey: JSON.parse(game.escrow_secret_key || '[]'),
+          } : undefined,
+          paymentStatus: 'complete' as const, // Assume complete if loaded from DB
+        };
+      })
+    );
+    
+    console.log(`✅ Loaded ${gamesWithPlayers.length} active games from database`);
+    return gamesWithPlayers;
+  } catch (error) {
+    console.error('❌ Error loading games from database:', error);
+    return [];
+  }
+}
+
+// Load games for a specific user (games they created or joined)
+export async function loadUserGames(userAddress: string) {
+  const db = ensureDatabaseConnection();
+  
+  if (!db) {
+    return [];
+  }
+  
+  try {
+    // Get games where user is creator or player
+    const games = await db`
+      SELECT DISTINCT g.* FROM games g
+      LEFT JOIN game_players gp ON g.id = gp.game_id
+      WHERE g.creator_address = ${userAddress} 
+         OR (gp.player_address = ${userAddress} AND gp.payment_confirmed = true)
+      ORDER BY g.created_at DESC;
+    `;
+    
+    // For each game, load its players and convert to Game interface format
+    const gamesWithPlayers = await Promise.all(
+      games.map(async (game) => {
+        const players = await db`
+          SELECT * FROM game_players 
+          WHERE game_id = ${game.id} AND payment_confirmed = true
+          ORDER BY joined_at ASC;
+        `;
+        
+        return {
+          id: game.id,
+          name: game.name || `Game #${game.id}`,
+          players: players.map(p => ({
+            publicKey: p.player_address,
+            buyIn: parseFloat(p.buy_in_amount),
+            address: p.player_address.slice(0, 8) + '...',
+            transactionSignature: p.transaction_signature,
+            paymentConfirmed: p.payment_confirmed,
+          })),
+          gameStatus: game.game_status as 'waiting' | 'full' | 'playing' | 'finished',
+          maxPlayers: game.max_players,
+          minPlayers: game.min_players,
+          buyInAmount: parseFloat(game.buy_in_amount),
+          totalPot: parseFloat(game.total_pot || '0'),
+          houseFeeCollected: parseFloat(game.house_fee_collected || '0'),
+          createdBy: game.creator_address,
+          createdAt: game.created_at,
+          winner: game.winner_addresses ? JSON.parse(game.winner_addresses) : undefined,
+          loser: game.loser_address,
+          escrowAccount: game.escrow_public_key ? {
+            publicKey: game.escrow_public_key,
+            secretKey: JSON.parse(game.escrow_secret_key || '[]'),
+          } : undefined,
+          paymentStatus: 'complete' as const, // Assume complete if loaded from DB
+        };
+      })
+    );
+    
+    return gamesWithPlayers;
+  } catch (error) {
+    console.error('❌ Error loading user games:', error);
+    return [];
+  }
+}
+
+// Load joinable games (games user hasn't joined yet)
+export async function loadJoinableGames(userAddress?: string) {
+  const db = ensureDatabaseConnection();
+  
+  if (!db) {
+    return [];
+  }
+  
+  try {
+    let games;
+    
+    if (userAddress) {
+      // Get waiting games where user is not already a player
+      games = await db`
+        SELECT g.* FROM games g
+        WHERE g.game_status = 'waiting' 
+          AND g.id NOT IN (
+            SELECT gp.game_id FROM game_players gp 
+            WHERE gp.player_address = ${userAddress} AND gp.payment_confirmed = true
+          )
+        ORDER BY g.created_at DESC;
+      `;
+    } else {
+      // Get all waiting games
+      games = await db`
+        SELECT * FROM games 
+        WHERE game_status = 'waiting'
+        ORDER BY created_at DESC;
+      `;
+    }
+    
+    // For each game, load its players and convert to Game interface format
+    const gamesWithPlayers = await Promise.all(
+      games.map(async (game) => {
+        const players = await db`
+          SELECT * FROM game_players 
+          WHERE game_id = ${game.id} AND payment_confirmed = true
+          ORDER BY joined_at ASC;
+        `;
+        
+        return {
+          id: game.id,
+          name: game.name || `Game #${game.id}`,
+          players: players.map(p => ({
+            publicKey: p.player_address,
+            buyIn: parseFloat(p.buy_in_amount),
+            address: p.player_address.slice(0, 8) + '...',
+            transactionSignature: p.transaction_signature,
+            paymentConfirmed: p.payment_confirmed,
+          })),
+          gameStatus: game.game_status as 'waiting' | 'full' | 'playing' | 'finished',
+          maxPlayers: game.max_players,
+          minPlayers: game.min_players,
+          buyInAmount: parseFloat(game.buy_in_amount),
+          totalPot: parseFloat(game.total_pot || '0'),
+          houseFeeCollected: parseFloat(game.house_fee_collected || '0'),
+          createdBy: game.creator_address,
+          createdAt: game.created_at,
+          winner: game.winner_addresses ? JSON.parse(game.winner_addresses) : undefined,
+          loser: game.loser_address,
+          escrowAccount: game.escrow_public_key ? {
+            publicKey: game.escrow_public_key,
+            secretKey: JSON.parse(game.escrow_secret_key || '[]'),
+          } : undefined,
+          paymentStatus: 'complete' as const, // Assume complete if loaded from DB
+        };
+      })
+    );
+    
+    return gamesWithPlayers;
+  } catch (error) {
+    console.error('❌ Error loading joinable games:', error);
+    return [];
+  }
+}
+
+// Remove player from game (for leave functionality)
+export async function removePlayerFromGame(gameId: string, playerAddress: string) {
+  const db = ensureDatabaseConnection();
+  
+  if (!db) {
+    console.log('⚠️ Cannot remove player - no database connection');
+    return;
+  }
+  
+  try {
+    await db`
+      DELETE FROM game_players 
+      WHERE game_id = ${gameId} AND player_address = ${playerAddress};
+    `;
+    
+    console.log(`✅ Player ${playerAddress} removed from game ${gameId}`);
+  } catch (error) {
+    console.error('❌ Error removing player from game:', error);
     throw error;
   }
 }

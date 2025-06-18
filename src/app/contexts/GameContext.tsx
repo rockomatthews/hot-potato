@@ -18,7 +18,9 @@ import {
   saveGame, 
   saveGamePlayer, 
   saveTransaction,
-  initializeGameTables 
+  initializeGameTables,
+  loadAllGames,
+  removePlayerFromGame
 } from '@/lib/db';
 
 // House configuration
@@ -64,7 +66,8 @@ type GameAction =
   | { type: 'JOIN_GAME'; payload: { gameId: string; player: Player } }
   | { type: 'START_GAME'; payload: { gameId: string } }
   | { type: 'FINISH_GAME'; payload: { gameId: string; loser: string } }
-  | { type: 'UPDATE_GAME'; payload: { gameId: string; updates: Partial<Game> } };
+  | { type: 'UPDATE_GAME'; payload: { gameId: string; updates: Partial<Game> } }
+  | { type: 'LOAD_GAMES'; payload: { games: Game[] } };
 
 const initialState: GameState = {
   games: [],
@@ -229,6 +232,14 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       };
     }
 
+    case 'LOAD_GAMES': {
+      return {
+        ...state,
+        games: action.payload.games,
+        userGames: [], // Will be recalculated by getUserGames
+      };
+    }
+
     default:
       return state;
   }
@@ -241,10 +252,12 @@ interface GameContextType {
   leaveGame: (gameId: string) => Promise<void>;
   getJoinableGames: () => Game[];
   getUserGames: () => Game[];
+  refreshGames: () => Promise<void>;
   getHouseFeeInfo: () => { percentage: number; address: string };
   walletBalance: number;
   checkingBalance: boolean;
   paymentLoading: boolean;
+  gamesLoading: boolean;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -255,20 +268,41 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
   const [walletBalance, setWalletBalance] = useState(0);
   const [checkingBalance, setCheckingBalance] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
+  const [gamesLoading, setGamesLoading] = useState(false);
 
-  // Initialize database tables on mount
+  // Refresh games from database
+  const refreshGames = useCallback(async () => {
+    setGamesLoading(true);
+    try {
+      const allGames = await loadAllGames();
+      dispatch({ 
+        type: 'LOAD_GAMES', 
+        payload: { games: allGames } 
+      });
+      console.log(`🔄 Refreshed ${allGames.length} games from database`);
+    } catch (error) {
+      console.error('❌ Failed to refresh games from database:', error);
+    } finally {
+      setGamesLoading(false);
+    }
+  }, []);
+
+  // Initialize database tables and load games on mount
   useEffect(() => {
     const initializeDB = async () => {
       try {
         await initializeGameTables();
         console.log('✅ Game database tables initialized');
+        
+        // Load existing games from database
+        await refreshGames();
       } catch (error) {
         console.error('❌ Failed to initialize game database:', error);
       }
     };
     
     initializeDB();
-  }, []);
+  }, [refreshGames]);
 
   // Distribute winnings when game finishes
   const distributeWinnings = useCallback(async (game: Game): Promise<string> => {
@@ -457,6 +491,7 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
         try {
           await saveGame({
             id: newGame.id,
+            name,
             creatorAddress: publicKey.toString(),
             buyInAmount: buyIn,
             maxPlayers,
@@ -494,6 +529,9 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
           console.error('❌ Failed to save game to database:', dbError);
         }
       }
+      
+      // Refresh games to ensure UI shows the latest data
+      await refreshGames();
       
       console.log('🎮 Game created and creator payment processed');
       toast.success(`🎮 Game created! Buy-in: ${buyIn} SOL`, {
@@ -582,6 +620,9 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
         console.error('❌ Failed to save player to database:', dbError);
       }
       
+      // Refresh games to ensure UI shows the latest data
+      await refreshGames();
+      
       console.log('🎮 Player joined game and payment processed');
       
       toast.success(`🎯 Joined game! Paid ${buyIn} SOL`, {
@@ -638,6 +679,7 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
   };
 
   const getJoinableGames = () => {
+    // Use local state for immediate filtering to avoid async in the getter
     return state.games.filter(game => 
       game.gameStatus === 'waiting' && 
       (!publicKey || !game.players.some(p => p.publicKey === publicKey.toString()))
@@ -646,6 +688,7 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
 
   const getUserGames = () => {
     if (!publicKey) return [];
+    // Use local state for immediate filtering to avoid async in the getter
     return state.games.filter(game => 
       game.players.some(p => p.publicKey === publicKey.toString()) ||
       game.createdBy === publicKey.toString()
@@ -688,20 +731,34 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
       return;
     }
     
-    // For now, just remove the player from the game
-    // In a real implementation, you might need to handle refunds
-    dispatch({ 
-      type: 'UPDATE_GAME', 
-      payload: { 
-        gameId, 
-        updates: { 
-          players: game.players.filter(p => p.publicKey !== publicKey.toString()),
-          totalPot: game.totalPot - (game.players.find(p => p.publicKey === publicKey.toString())?.buyIn || 0) * (1 - HOUSE_FEE_PERCENTAGE)
+    try {
+      // Remove player from database
+      await removePlayerFromGame(gameId, publicKey.toString());
+      
+      // Update local state
+      const playerBuyIn = game.players.find(p => p.publicKey === publicKey.toString())?.buyIn || 0;
+      const playerNetContribution = playerBuyIn * (1 - HOUSE_FEE_PERCENTAGE);
+      
+      dispatch({ 
+        type: 'UPDATE_GAME', 
+        payload: { 
+          gameId, 
+          updates: { 
+            players: game.players.filter(p => p.publicKey !== publicKey.toString()),
+            totalPot: game.totalPot - playerNetContribution,
+            houseFeeCollected: game.houseFeeCollected - (playerBuyIn * HOUSE_FEE_PERCENTAGE)
+          } 
         } 
-      } 
-    });
-    
-    toast.success('Left the game', { icon: '👋' });
+      });
+      
+      // Refresh games to ensure consistency
+      await refreshGames();
+      
+      toast.success('Left the game', { icon: '👋' });
+    } catch (error) {
+      console.error('Failed to leave game:', error);
+      toast.error('Failed to leave game');
+    }
   };
 
   const getHouseFeeInfo = () => ({
@@ -717,10 +774,12 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
       leaveGame,
       getJoinableGames,
       getUserGames,
+      refreshGames,
       getHouseFeeInfo,
       walletBalance,
       checkingBalance,
       paymentLoading,
+      gamesLoading,
     }}>
       {children}
     </GameContext.Provider>
