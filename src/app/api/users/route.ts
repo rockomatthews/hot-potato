@@ -12,8 +12,13 @@ let dbInitialized = false;
 
 async function ensureDbInitialized() {
   if (!dbInitialized) {
-    await initializeDatabase();
-    dbInitialized = true;
+    try {
+      await initializeDatabase();
+      dbInitialized = true;
+    } catch {
+      console.log('⚠️ Database initialization failed - running without profiles');
+      dbInitialized = true; // Set to true to avoid retrying
+    }
   }
 }
 
@@ -32,18 +37,31 @@ export async function GET(request: NextRequest) {
       );
     }
     
-    const user = await getUserByWallet(walletAddress);
-    
-    if (!user) {
+    // Try to get user, but handle database unavailability gracefully
+    try {
+      const user = await getUserByWallet(walletAddress);
+      
+      if (!user) {
+        return NextResponse.json(
+          { error: 'User not found', database_available: true },
+          { status: 404 }
+        );
+      }
+      
+      return NextResponse.json({ user });
+    } catch {
+      // Database is not available, return a response indicating this
       return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
+        { 
+          error: 'Profile system temporarily unavailable', 
+          database_available: false,
+          wallet_address: walletAddress 
+        },
+        { status: 503 } // Service Unavailable
       );
     }
-    
-    return NextResponse.json({ user });
   } catch (error) {
-    console.error('Error fetching user:', error);
+    console.error('Error in user API:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -76,32 +94,43 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Check if user already exists
-    const existingUser = await getUserByWallet(wallet_address);
-    if (existingUser) {
+    try {
+      // Check if user already exists
+      const existingUser = await getUserByWallet(wallet_address);
+      if (existingUser) {
+        return NextResponse.json(
+          { error: 'User already exists' },
+          { status: 409 }
+        );
+      }
+      
+      // Check if username is available
+      const usernameAvailable = await isUsernameAvailable(username);
+      if (!usernameAvailable) {
+        return NextResponse.json(
+          { error: 'Username is already taken' },
+          { status: 409 }
+        );
+      }
+      
+      // Create user
+      const user = await createUser({
+        wallet_address,
+        username,
+        profile_picture_url
+      });
+      
+      return NextResponse.json({ user }, { status: 201 });
+    } catch {
+      // Database is not available
       return NextResponse.json(
-        { error: 'User already exists' },
-        { status: 409 }
+        { 
+          error: 'Profile system temporarily unavailable - cannot create profiles at this time',
+          database_available: false
+        },
+        { status: 503 }
       );
     }
-    
-    // Check if username is available
-    const usernameAvailable = await isUsernameAvailable(username);
-    if (!usernameAvailable) {
-      return NextResponse.json(
-        { error: 'Username is already taken' },
-        { status: 409 }
-      );
-    }
-    
-    // Create user
-    const user = await createUser({
-      wallet_address,
-      username,
-      profile_picture_url
-    });
-    
-    return NextResponse.json({ user }, { status: 201 });
   } catch (error) {
     console.error('Error creating user:', error);
     return NextResponse.json(

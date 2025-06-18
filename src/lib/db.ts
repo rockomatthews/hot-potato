@@ -72,26 +72,9 @@ export interface UpdateUserProfile {
 
 function ensureDatabaseConnection() {
   if (!sql) {
-    const currentUrl = getDatabaseUrl();
-    const errorMessage = `Database connection not available. Environment check:
-    Direct URLs:
-    - DATABASE_URL: ${process.env.DATABASE_URL ? 'Set' : 'Missing'}
-    - POSTGRES_URL: ${process.env.POSTGRES_URL ? 'Set' : 'Missing'}
-    - POSTGRES_URL_NON_POOLING: ${process.env.POSTGRES_URL_NON_POOLING ? 'Set' : 'Missing'}
-    - POSTGRES_PRISMA_URL: ${process.env.POSTGRES_PRISMA_URL ? 'Set' : 'Missing'}
-    
-    Component Variables:
-    - PGHOST/POSTGRES_HOST: ${(process.env.PGHOST || process.env.POSTGRES_HOST) ? 'Set' : 'Missing'}
-    - PGUSER/POSTGRES_USER: ${(process.env.PGUSER || process.env.POSTGRES_USER) ? 'Set' : 'Missing'}
-    - PGPASSWORD/POSTGRES_PASSWORD: ${(process.env.PGPASSWORD || process.env.POSTGRES_PASSWORD) ? 'Set' : 'Missing'}
-    - PGDATABASE/POSTGRES_DATABASE: ${(process.env.PGDATABASE || process.env.POSTGRES_DATABASE) ? 'Set' : 'Missing'}
-    
-    - Selected URL: ${currentUrl ? 'Found' : 'None found'}
-    
-    Please check your environment variables in Vercel.`;
-    
-    console.error('❌ Database connection failed:', errorMessage);
-    throw new Error(errorMessage);
+    console.warn('⚠️ Database not available - Hot Potato game will run without user profiles');
+    // Return null to indicate no database available
+    return null;
   }
   return sql;
 }
@@ -99,6 +82,11 @@ function ensureDatabaseConnection() {
 // Initialize the users table
 export async function initializeDatabase() {
   const db = ensureDatabaseConnection();
+  
+  if (!db) {
+    console.log('⚠️ Skipping database initialization - no connection available');
+    return;
+  }
   
   try {
     await db`
@@ -129,6 +117,11 @@ export async function initializeDatabase() {
 export async function getUserByWallet(walletAddress: string): Promise<UserProfile | null> {
   const db = ensureDatabaseConnection();
   
+  if (!db) {
+    console.log('⚠️ Database not available - returning null for user profile');
+    return null;
+  }
+  
   try {
     const result = await db`
       SELECT * FROM user_profiles 
@@ -138,13 +131,17 @@ export async function getUserByWallet(walletAddress: string): Promise<UserProfil
     return result[0] as UserProfile || null;
   } catch (error) {
     console.error('Error fetching user by wallet:', error);
-    throw error;
+    return null;
   }
 }
 
 // Get user profile by username
 export async function getUserByUsername(username: string): Promise<UserProfile | null> {
   const db = ensureDatabaseConnection();
+  
+  if (!db) {
+    return null;
+  }
   
   try {
     const result = await db`
@@ -155,13 +152,17 @@ export async function getUserByUsername(username: string): Promise<UserProfile |
     return result[0] as UserProfile || null;
   } catch (error) {
     console.error('Error fetching user by username:', error);
-    throw error;
+    return null;
   }
 }
 
 // Create new user profile
 export async function createUser(userData: CreateUserProfile): Promise<UserProfile> {
   const db = ensureDatabaseConnection();
+  
+  if (!db) {
+    throw new Error('Database not available');
+  }
   
   try {
     const result = await db`
@@ -179,6 +180,10 @@ export async function createUser(userData: CreateUserProfile): Promise<UserProfi
 // Update user profile
 export async function updateUser(walletAddress: string, updates: UpdateUserProfile): Promise<UserProfile> {
   const db = ensureDatabaseConnection();
+  
+  if (!db) {
+    throw new Error('Database not available');
+  }
   
   try {
     const result = await db`
@@ -206,6 +211,10 @@ export async function updateUser(walletAddress: string, updates: UpdateUserProfi
 export async function isUsernameAvailable(username: string, excludeWallet?: string): Promise<boolean> {
   const db = ensureDatabaseConnection();
   
+  if (!db) {
+    return true; // If no database, assume username is available
+  }
+  
   try {
     let result;
     
@@ -226,13 +235,18 @@ export async function isUsernameAvailable(username: string, excludeWallet?: stri
     return result.length === 0;
   } catch (error) {
     console.error('Error checking username availability:', error);
-    throw error;
+    return true;
   }
 }
 
 // Create games table
 export async function createGamesTable() {
   const db = ensureDatabaseConnection();
+  
+  if (!db) {
+    console.log('⚠️ Skipping games table creation - no database connection');
+    return;
+  }
   
   try {
     await db`
@@ -266,6 +280,11 @@ export async function createGamesTable() {
 export async function createGamePlayersTable() {
   const db = ensureDatabaseConnection();
   
+  if (!db) {
+    console.log('⚠️ Skipping game players table creation - no database connection');
+    return;
+  }
+  
   try {
     await db`
       CREATE TABLE IF NOT EXISTS game_players (
@@ -290,6 +309,11 @@ export async function createGamePlayersTable() {
 // Create transactions table
 export async function createTransactionsTable() {
   const db = ensureDatabaseConnection();
+  
+  if (!db) {
+    console.log('⚠️ Skipping transactions table creation - no database connection');
+    return;
+  }
   
   try {
     await db`
@@ -341,6 +365,11 @@ export async function saveGame(game: {
 }) {
   const db = ensureDatabaseConnection();
   
+  if (!db) {
+    console.log('⚠️ Game data not saved - no database connection');
+    return;
+  }
+  
   try {
     await db`
       INSERT INTO games (
@@ -386,6 +415,11 @@ export async function saveGamePlayer(player: {
 }) {
   const db = ensureDatabaseConnection();
   
+  if (!db) {
+    console.log('⚠️ Player data not saved - no database connection');
+    return;
+  }
+  
   try {
     await db`
       INSERT INTO game_players (
@@ -422,6 +456,11 @@ export async function saveTransaction(transaction: {
 }) {
   const db = ensureDatabaseConnection();
   
+  if (!db) {
+    console.log('⚠️ Transaction not saved - no database connection');
+    return;
+  }
+  
   try {
     await db`
       INSERT INTO transactions (
@@ -450,6 +489,10 @@ export async function saveTransaction(transaction: {
 export async function getUserTransactions(userAddress: string) {
   const db = ensureDatabaseConnection();
   
+  if (!db) {
+    return [];
+  }
+  
   try {
     const result = await db`
       SELECT t.*, g.id as game_id
@@ -470,6 +513,10 @@ export async function getUserTransactions(userAddress: string) {
 // Get user's game history
 export async function getUserGameHistory(userAddress: string) {
   const db = ensureDatabaseConnection();
+  
+  if (!db) {
+    return [];
+  }
   
   try {
     const result = await db`
