@@ -23,14 +23,23 @@ import GameCard from './GameCard';
 
 export default function HotPotatoGame() {
   const { connected } = useWallet();
-  const { createGame, joinGame, leaveGame, getJoinableGames, getUserGames, walletBalance, paymentLoading } = useGame();
+  const { createGame, joinGame, leaveGame, getJoinableGames, getUserGames, walletBalance, paymentLoading, state } = useGame();
 
   const userGames = getUserGames();
   const joinableGames = getJoinableGames();
 
+  // Debug logging
+  console.log('🐛 DEBUG: HotPotatoGame render');
+  console.log('🐛 All games in state:', state.games);
+  console.log('🐛 User games:', userGames);
+  console.log('🐛 Joinable games:', joinableGames);
+  console.log('🐛 Connected:', connected);
+
   const handleCreateGame = async (buyIn: number, maxPlayers: number) => {
     try {
+      console.log('🐛 DEBUG: Creating game with buyIn:', buyIn, 'maxPlayers:', maxPlayers);
       await createGame(`Potato Game ${Date.now()}`, buyIn, maxPlayers);
+      console.log('🐛 DEBUG: Game creation completed, new state:', state.games);
     } catch (error) {
       console.error('Failed to create game:', error);
       // Error handling is already done in the Header component

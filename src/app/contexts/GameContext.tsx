@@ -503,6 +503,19 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
       if (newGame?.escrowAccount) {
         const signature = await processPayment(publicKey, new PublicKey(newGame.escrowAccount.publicKey), buyIn);
         
+        // Add creator as the first player after successful payment
+        const creatorPlayer: Player = {
+          publicKey: publicKey.toString(),
+          buyIn,
+          address: publicKey.toString().slice(0, 8) + '...',
+          paymentConfirmed: true,
+          transactionSignature: signature,
+        };
+        
+        dispatch({ type: 'JOIN_GAME', payload: { gameId: newGame.id, player: creatorPlayer } });
+        
+        console.log('🎮 Creator added as first player to game:', newGame.id);
+        
         // Save game to database
         try {
           await saveGame({
