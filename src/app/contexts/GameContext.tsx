@@ -486,28 +486,44 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
     try {
       setPaymentLoading(true);
       
-      // Create the game object locally first (including escrow account)
+      // Process payment FIRST before creating game
       const escrowAccount = generateGameEscrowAccount();
+      const signature = await processPayment(publicKey, escrowAccount.publicKey, buyIn);
+      
+      // Calculate house fee and net amount
+      const houseFee = buyIn * HOUSE_FEE_PERCENTAGE;
+      const netAmount = buyIn - houseFee;
+      
+      // Create the creator as first player
+      const creatorPlayer: Player = {
+        publicKey: publicKey.toString(),
+        buyIn,
+        address: publicKey.toString().slice(0, 8) + '...',
+        paymentConfirmed: true,
+        transactionSignature: signature,
+      };
+      
+      // Create the game object with creator already included
       const newGame: Game = {
         id: Math.random().toString(36).substr(2, 9),
         name,
-        players: [],
+        players: [creatorPlayer], // Creator is already in the game
         gameStatus: 'waiting',
         maxPlayers,
         minPlayers: Math.max(3, Math.ceil(maxPlayers * 0.6)),
         buyInAmount: buyIn,
-        totalPot: 0,
-        houseFeeCollected: 0,
+        totalPot: netAmount, // Creator's net contribution already included
+        houseFeeCollected: houseFee, // Creator's house fee already included
         createdBy: publicKey.toString(),
         createdAt: Date.now(),
         escrowAccount: {
           publicKey: escrowAccount.publicKey.toString(),
           secretKey: Array.from(escrowAccount.secretKey),
         },
-        paymentStatus: 'pending',
+        paymentStatus: 'complete',
       };
       
-      // Now dispatch the game creation with the pre-built game
+      // Dispatch the game creation with creator already included
       dispatch({ 
         type: 'CREATE_GAME', 
         payload: { 
@@ -515,92 +531,74 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
         } 
       });
       
-      // Creator must also deposit their buy-in
-      if (newGame?.escrowAccount) {
-        const signature = await processPayment(publicKey, new PublicKey(newGame.escrowAccount.publicKey), buyIn);
-        
-        // Add creator as the first player after successful payment
-        const creatorPlayer: Player = {
-          publicKey: publicKey.toString(),
-          buyIn,
-          address: publicKey.toString().slice(0, 8) + '...',
-          paymentConfirmed: true,
-          transactionSignature: signature,
-        };
-        
-        dispatch({ type: 'JOIN_GAME', payload: { gameId: newGame.id, player: creatorPlayer } });
-        
-        console.log('🎮 Creator added as first player to game:', newGame.id);
-        
-        // Save game to database via API - but don't refresh immediately to avoid race condition
-        try {
-          // Save game
-          await fetch('/api/games', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'create_game',
-              gameData: {
-                id: newGame.id,
-                name,
-                creatorAddress: publicKey.toString(),
-                buyInAmount: buyIn,
-                maxPlayers,
-                minPlayers: newGame.minPlayers,
-                totalPot: 0,
-                houseFeeCollected: 0,
-                gameStatus: 'waiting',
-                escrowPublicKey: newGame.escrowAccount.publicKey,
-                escrowSecretKey: newGame.escrowAccount.secretKey,
-                createdAt: newGame.createdAt,
-              }
-            })
-          });
+      // Save game to database via API
+      try {
+        // Save game
+        await fetch('/api/games', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'create_game',
+            gameData: {
+              id: newGame.id,
+              name,
+              creatorAddress: publicKey.toString(),
+              buyInAmount: buyIn,
+              maxPlayers,
+              minPlayers: newGame.minPlayers,
+              totalPot: netAmount,
+              houseFeeCollected: houseFee,
+              gameStatus: 'waiting',
+              escrowPublicKey: newGame.escrowAccount!.publicKey,
+              escrowSecretKey: newGame.escrowAccount!.secretKey,
+              createdAt: newGame.createdAt,
+            }
+          })
+        });
 
-          // Save creator as first player
-          await fetch('/api/games', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'join_game',
-              playerData: {
-                gameId: newGame.id,
-                playerAddress: publicKey.toString(),
-                buyInAmount: buyIn,
-                transactionSignature: signature,
-                paymentConfirmed: true,
-                joinedAt: Date.now(),
-              }
-            })
-          });
+        // Save creator as first player
+        await fetch('/api/games', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'join_game',
+            playerData: {
+              gameId: newGame.id,
+              playerAddress: publicKey.toString(),
+              buyInAmount: buyIn,
+              transactionSignature: signature,
+              paymentConfirmed: true,
+              joinedAt: Date.now(),
+            }
+          })
+        });
 
-          // Save buy-in transaction
-          await fetch('/api/games', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'save_transaction',
-              transactionData: {
-                signature,
-                transactionType: 'buy_in',
-                amount: buyIn,
-                fromAddress: publicKey.toString(),
-                toAddress: newGame.escrowAccount.publicKey,
-                gameId: newGame.id,
-                status: 'confirmed',
-                blockTime: Date.now(),
-              }
-            })
-          });
+        // Save buy-in transaction
+        await fetch('/api/games', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'save_transaction',
+            transactionData: {
+              signature,
+              transactionType: 'buy_in',
+              amount: buyIn,
+              fromAddress: publicKey.toString(),
+              toAddress: newGame.escrowAccount!.publicKey,
+              gameId: newGame.id,
+              status: 'confirmed',
+              blockTime: Date.now(),
+            }
+          })
+        });
 
-          console.log('🎮 Game saved to database via API successfully');
-        } catch (dbError) {
-          console.error('❌ Failed to save game to database via API:', dbError);
-        }
+        console.log('🎮 Game saved to database via API successfully');
+      } catch (dbError) {
+        console.error('❌ Failed to save game to database via API:', dbError);
       }
       
-      console.log('🎮 Game created and creator payment processed');
-      toast.success(`🎮 Game created! Buy-in: ${buyIn} SOL`, {
+      console.log('🎮 Game created with creator as first player - ONE payment only!');
+      toast.success(`🎮 Game created! Paid ${buyIn} SOL (creator auto-joined)`, {
         icon: '🔥',
         duration: 5000,
       });
