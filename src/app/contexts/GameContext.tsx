@@ -768,10 +768,21 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
 
   const getJoinableGames = () => {
     // Use local state for immediate filtering to avoid async in the getter
-    return state.games.filter(game => 
-      game.gameStatus === 'waiting' && 
-      (!publicKey || !game.players.some(p => p.publicKey === publicKey.toString()))
-    );
+    const userAddress = publicKey?.toString();
+    const joinable = state.games.filter(game => {
+      const isWaiting = game.gameStatus === 'waiting';
+      const userNotInGame = !userAddress || !game.players.some(p => p.publicKey === userAddress);
+      
+      // Debug logging
+      if (userAddress) {
+        console.log(`🐛 Game ${game.id}: waiting=${isWaiting}, userNotInGame=${userNotInGame}, players:`, game.players.map(p => p.publicKey.slice(0, 8)));
+      }
+      
+      return isWaiting && userNotInGame;
+    });
+    
+    console.log(`🐛 getJoinableGames: Found ${joinable.length} joinable games for user ${userAddress?.slice(0, 8)}`);
+    return joinable;
   };
 
   const getUserGames = () => {
@@ -819,31 +830,108 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
       return;
     }
     
+    const userPlayer = game.players.find(p => p.publicKey === publicKey.toString());
+    if (!userPlayer) {
+      toast.error('You are not in this game');
+      return;
+    }
+    
     try {
-      // Remove player from database via API (note: this functionality may need to be added to API)
-      console.log('⚠️ Player removal from database not yet implemented via API');
+      setPaymentLoading(true);
+      toast.loading('Processing refund...', { id: 'leave-game' });
       
-      // Update local state
-      const playerBuyIn = game.players.find(p => p.publicKey === publicKey.toString())?.buyIn || 0;
-      const playerNetContribution = playerBuyIn * (1 - HOUSE_FEE_PERCENTAGE);
+      // Process refund transaction - transfer back from escrow to user
+      const connection = getSolanaConnection();
+      if (game.escrowAccount && userPlayer.buyIn > 0) {
+        const escrowKeypair = Keypair.fromSecretKey(new Uint8Array(game.escrowAccount.secretKey));
+        const { blockhash } = await connection.getLatestBlockhash();
+        
+        const refundTransaction = createWinningDistributionTransaction(
+          escrowKeypair,
+          [publicKey], // Refund to user
+          userPlayer.buyIn, // Full refund amount
+          escrowKeypair.publicKey, // No house fee on refund
+          0, // No house fee
+          blockhash
+        );
+        
+        const refundSignature = await sendAndConfirmTransaction(connection, refundTransaction, [escrowKeypair]);
+        console.log(`💰 Refund of ${userPlayer.buyIn} SOL sent. Signature: ${refundSignature}`);
+        
+        // Save refund transaction to database
+        try {
+          await fetch('/api/games', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'save_transaction',
+              transactionData: {
+                signature: refundSignature,
+                transactionType: 'refund',
+                amount: userPlayer.buyIn,
+                fromAddress: game.escrowAccount.publicKey,
+                toAddress: publicKey.toString(),
+                gameId: gameId,
+                status: 'confirmed',
+                blockTime: Date.now(),
+              }
+            })
+          });
+        } catch (dbError) {
+          console.error('❌ Failed to save refund transaction:', dbError);
+        }
+      }
       
-      dispatch({ 
-        type: 'UPDATE_GAME', 
-        payload: { 
-          gameId, 
-          updates: { 
-            players: game.players.filter(p => p.publicKey !== publicKey.toString()),
-            totalPot: game.totalPot - playerNetContribution,
-            houseFeeCollected: game.houseFeeCollected - (playerBuyIn * HOUSE_FEE_PERCENTAGE)
+      const remainingPlayers = game.players.filter(p => p.publicKey !== publicKey.toString());
+      
+      // If this was the last player, delete the game entirely
+      if (remainingPlayers.length === 0) {
+        // Remove game from local state
+        dispatch({ 
+          type: 'LOAD_GAMES', 
+          payload: { 
+            games: state.games.filter(g => g.id !== gameId) 
           } 
-        } 
-      });
-      
-      console.log('🎮 Player left game successfully');
-      toast.success('Left the game', { icon: '👋' });
+        });
+        
+        console.log('🎮 Game deleted - was the last player');
+        toast.success('💰 Game deleted and refunded!', { 
+          id: 'leave-game',
+          icon: '🗑️',
+          duration: 4000,
+        });
+      } else {
+        // Update game state - remove player and adjust pot
+        const playerNetContribution = userPlayer.buyIn * (1 - HOUSE_FEE_PERCENTAGE);
+        
+        dispatch({ 
+          type: 'UPDATE_GAME', 
+          payload: { 
+            gameId, 
+            updates: { 
+              players: remainingPlayers,
+              totalPot: game.totalPot - playerNetContribution,
+              houseFeeCollected: game.houseFeeCollected - (userPlayer.buyIn * HOUSE_FEE_PERCENTAGE)
+            } 
+          } 
+        });
+        
+        console.log('🎮 Player left game successfully');
+        toast.success('💰 Left game and refunded!', { 
+          id: 'leave-game',
+          icon: '👋',
+          duration: 4000,
+        });
+      }
     } catch (error) {
       console.error('Failed to leave game:', error);
-      toast.error('Failed to leave game');
+      toast.error('Failed to leave game', { 
+        id: 'leave-game',
+        icon: '❌',
+        duration: 4000,
+      });
+    } finally {
+      setPaymentLoading(false);
     }
   };
 
