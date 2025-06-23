@@ -22,7 +22,7 @@ import Header from './Header';
 import GameCard from './GameCard';
 
 export default function HotPotatoGame() {
-  const { connected } = useWallet();
+  const { connected, publicKey } = useWallet();
   const { createGame, joinGame, leaveGame, getJoinableGames, getUserGames, walletBalance, paymentLoading, state } = useGame();
 
   const userGames = getUserGames();
@@ -48,10 +48,19 @@ export default function HotPotatoGame() {
 
   const handleJoinGame = async (gameId: string, buyIn: number) => {
     try {
+      console.log('🐛 DEBUG: Starting join game process');
+      console.log('🐛 Before join - User games:', userGames.length);
+      console.log('🐛 Before join - All games:', state.games.length);
+      console.log('🐛 Before join - Wallet:', publicKey?.toString().slice(0, 8));
+      
       await joinGame(gameId, buyIn);
+      
+      console.log('🐛 After join - User games:', getUserGames().length);
+      console.log('🐛 After join - All games:', state.games.length);
+      console.log('🐛 After join completed successfully');
     } catch (error) {
       console.error('Failed to join game:', error);
-      // TODO: Add toast notification for errors
+      // Error handling is already done in the GameContext
     }
   };
 

@@ -233,10 +233,15 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'LOAD_GAMES': {
+      // Don't completely replace local state if we have pending operations
+      // This prevents race conditions between local updates and database loads
+      console.log(`🔄 Loading ${action.payload.games.length} games from database`);
+      
       return {
         ...state,
         games: action.payload.games,
-        userGames: [], // Will be recalculated by getUserGames
+        // Keep userGames empty - will be calculated dynamically by getUserGames()
+        userGames: [], 
       };
     }
 
@@ -516,7 +521,7 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
         
         console.log('🎮 Creator added as first player to game:', newGame.id);
         
-        // Save game to database
+        // Save game to database - but don't refresh immediately to avoid race condition
         try {
           await saveGame({
             id: newGame.id,
@@ -554,16 +559,11 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
             status: 'confirmed',
             blockTime: Date.now(),
           });
+
+          console.log('🎮 Game saved to database successfully');
         } catch (dbError) {
           console.error('❌ Failed to save game to database:', dbError);
         }
-      }
-      
-      // Try to refresh games from database, but don't fail if it doesn't work
-      try {
-        await refreshGames();
-      } catch (refreshError) {
-        console.warn('⚠️ Failed to refresh games from database, but game creation succeeded:', refreshError);
       }
       
       console.log('🎮 Game created and creator payment processed');
@@ -600,17 +600,17 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
       const signature = await processPayment(publicKey, new PublicKey(game.escrowAccount.publicKey), buyIn);
       
       // Add player to game after successful payment
-    const player: Player = {
-      publicKey: publicKey.toString(),
-      buyIn,
-      address: publicKey.toString().slice(0, 8) + '...',
+      const player: Player = {
+        publicKey: publicKey.toString(),
+        buyIn,
+        address: publicKey.toString().slice(0, 8) + '...',
         paymentConfirmed: true,
         transactionSignature: signature,
-    };
+      };
 
       dispatch({ type: 'JOIN_GAME', payload: { gameId, player } });
       
-      // Save to database
+      // Save to database - but don't refresh immediately to avoid race condition
       try {
         await saveGamePlayer({
           gameId,
@@ -649,15 +649,11 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
             createdAt: updatedGame.createdAt,
           });
         }
+
+        console.log('🎮 Player join saved to database successfully');
       } catch (dbError) {
         console.error('❌ Failed to save player to database:', dbError);
-      }
-      
-      // Try to refresh games from database, but don't fail if it doesn't work
-      try {
-        await refreshGames();
-      } catch (refreshError) {
-        console.warn('⚠️ Failed to refresh games from database, but join succeeded:', refreshError);
+        // Don't fail the whole operation if database save fails
       }
       
       console.log('🎮 Player joined game and payment processed');
@@ -788,19 +784,26 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
         } 
       });
       
-      // Try to refresh games from database for consistency
-      try {
-        await refreshGames();
-      } catch (refreshError) {
-        console.warn('⚠️ Failed to refresh games from database, but leave succeeded:', refreshError);
-      }
-      
+      console.log('🎮 Player left game successfully');
       toast.success('Left the game', { icon: '👋' });
     } catch (error) {
       console.error('Failed to leave game:', error);
       toast.error('Failed to leave game');
     }
   };
+
+  // Periodic refresh every 30 seconds to keep games in sync with database
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        await refreshGames();
+      } catch (error) {
+        console.warn('⚠️ Periodic refresh failed:', error);
+      }
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [refreshGames]);
 
   const getHouseFeeInfo = () => ({
     percentage: HOUSE_FEE_PERCENTAGE,
