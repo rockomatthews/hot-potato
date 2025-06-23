@@ -382,12 +382,24 @@ export async function saveGame(game: {
 }) {
   const db = ensureDatabaseConnection();
   
+  console.log('🎮 saveGame called with:', {
+    id: game.id,
+    name: game.name,
+    creatorAddress: game.creatorAddress,
+    gameStatus: game.gameStatus,
+    dbConnection: db ? 'Available' : 'Not available'
+  });
+  
   if (!db) {
-    console.log('⚠️ Game data not saved - no database connection');
-    return;
+    console.error('❌ CRITICAL: No database connection - game will NOT be saved!');
+    console.error('❌ This means games will disappear and other players cannot join!');
+    console.error('❌ Check your Neon database environment variables in Vercel!');
+    throw new Error('Database connection not available - games cannot be saved');
   }
   
   try {
+    console.log('🔄 Attempting to save game to database...');
+    
     await db.query(`
       INSERT INTO games (
         id, name, creator_address, buy_in_amount, max_players, min_players,
@@ -426,9 +438,10 @@ export async function saveGame(game: {
       game.distributionSignature || null
     ]);
     
-    console.log(`✅ Game ${game.id} saved to database`);
+    console.log(`✅ SUCCESS: Game ${game.id} saved to Neon database!`);
   } catch (error) {
-    console.error('❌ Error saving game:', error);
+    console.error('❌ CRITICAL ERROR saving game to database:', error);
+    console.error('❌ Game data:', game);
     throw error;
   }
 }
