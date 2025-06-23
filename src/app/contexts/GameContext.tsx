@@ -14,14 +14,7 @@ import {
   calculateGamePayouts,
   sendAndConfirmTransaction
 } from '@/lib/solana';
-import { 
-  saveGame, 
-  saveGamePlayer, 
-  saveTransaction,
-  initializeGameTables,
-  loadAllGames,
-  removePlayerFromGame
-} from '@/lib/db';
+// Database functions are now handled via API routes
 
 // House configuration
 const HOUSE_FEE_PERCENTAGE = parseFloat(process.env.NEXT_PUBLIC_HOUSE_FEE_PERCENTAGE || '0.03');
@@ -258,18 +251,20 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [gamesLoading, setGamesLoading] = useState(false);
 
-  // Refresh games from database
+  // Refresh games from database via API route
   const refreshGames = useCallback(async () => {
     setGamesLoading(true);
     try {
-      const allGames = await loadAllGames();
+      const response = await fetch('/api/games');
+      const data = await response.json();
+      
       dispatch({ 
         type: 'LOAD_GAMES', 
-        payload: { games: allGames } 
+        payload: { games: data.games || [] } 
       });
-      console.log(`🔄 Refreshed ${allGames.length} games from database`);
+      console.log(`🔄 Refreshed ${data.games?.length || 0} games from API`);
     } catch (error) {
-      console.error('❌ Failed to refresh games from database:', error);
+      console.error('❌ Failed to refresh games from API:', error);
     } finally {
       setGamesLoading(false);
     }
@@ -279,30 +274,29 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     const initializeDB = async () => {
       try {
-        await initializeGameTables();
-        console.log('✅ Game database tables initialized');
-        
-        // Load existing games from database
+        // Load existing games from API
         setGamesLoading(true);
         try {
-          const allGames = await loadAllGames();
+          const response = await fetch('/api/games');
+          const data = await response.json();
+          
           dispatch({ 
             type: 'LOAD_GAMES', 
-            payload: { games: allGames } 
+            payload: { games: data.games || [] } 
           });
-          console.log(`🔄 Loaded ${allGames.length} games from database on initialization`);
+          console.log(`🔄 Loaded ${data.games?.length || 0} games from API on initialization`);
         } catch (error) {
-          console.error('❌ Failed to load games from database:', error);
+          console.error('❌ Failed to load games from API:', error);
         } finally {
           setGamesLoading(false);
         }
       } catch (error) {
-        console.error('❌ Failed to initialize game database:', error);
+        console.error('❌ Failed to initialize game API:', error);
       }
     };
     
     initializeDB();
-  }, []); // Remove refreshGames dependency to prevent infinite loops
+  }, []);
 
   // Distribute winnings when game finishes
   const distributeWinnings = useCallback(async (game: Game): Promise<string> => {
@@ -344,53 +338,76 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
     console.log(`💰 Each winner received: ${payouts.amountPerWinner.toFixed(4)} SOL`);
     console.log(`🏠 House fee collected: ${payouts.houseFeeTotal.toFixed(4)} SOL`);
     
-    // Save distribution transaction to database
+    // Save distribution transactions to database via API
     try {
-      await saveTransaction({
-        signature,
-        transactionType: 'winning',
-        amount: payouts.totalPot,
-        fromAddress: escrowKeypair.publicKey.toString(),
-        toAddress: game.winner.join(','), // Multiple winners
-        gameId: game.id,
-        status: 'confirmed',
-        blockTime: Date.now(),
+      // Save winning transaction
+      await fetch('/api/games', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save_transaction',
+          transactionData: {
+            signature,
+            transactionType: 'winning',
+            amount: payouts.totalPot,
+            fromAddress: escrowKeypair.publicKey.toString(),
+            toAddress: game.winner.join(','), // Multiple winners
+            gameId: game.id,
+            status: 'confirmed',
+            blockTime: Date.now(),
+          }
+        })
       });
 
       // Save house fee transaction
       if (payouts.houseFeeTotal > 0) {
-        await saveTransaction({
-          signature: `${signature}-house`,
-          transactionType: 'house_fee',
-          amount: payouts.houseFeeTotal,
-          fromAddress: escrowKeypair.publicKey.toString(),
-          toAddress: HOUSE_WALLET_ADDRESS,
-          gameId: game.id,
-          status: 'confirmed',
-          blockTime: Date.now(),
+        await fetch('/api/games', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'save_transaction',
+            transactionData: {
+              signature: `${signature}-house`,
+              transactionType: 'house_fee',
+              amount: payouts.houseFeeTotal,
+              fromAddress: escrowKeypair.publicKey.toString(),
+              toAddress: HOUSE_WALLET_ADDRESS,
+              gameId: game.id,
+              status: 'confirmed',
+              blockTime: Date.now(),
+            }
+          })
         });
       }
 
       // Update game in database
-      await saveGame({
-        id: game.id,
-        creatorAddress: game.createdBy,
-        buyInAmount: game.buyInAmount,
-        maxPlayers: game.maxPlayers,
-        minPlayers: game.minPlayers,
-        totalPot: game.totalPot,
-        houseFeeCollected: game.houseFeeCollected,
-        gameStatus: 'finished',
-        winnerAddresses: game.winner,
-        loserAddress: game.loser,
-        escrowPublicKey: game.escrowAccount.publicKey,
-        escrowSecretKey: game.escrowAccount.secretKey,
-        createdAt: game.createdAt,
-        finishedAt: Date.now(),
-        distributionSignature: signature,
+      await fetch('/api/games', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create_game',
+          gameData: {
+            id: game.id,
+            name: game.name,
+            creatorAddress: game.createdBy,
+            buyInAmount: game.buyInAmount,
+            maxPlayers: game.maxPlayers,
+            minPlayers: game.minPlayers,
+            totalPot: game.totalPot,
+            houseFeeCollected: game.houseFeeCollected,
+            gameStatus: 'finished',
+            winnerAddresses: game.winner,
+            loserAddress: game.loser,
+            escrowPublicKey: game.escrowAccount.publicKey,
+            escrowSecretKey: game.escrowAccount.secretKey,
+            createdAt: game.createdAt,
+            finishedAt: Date.now(),
+            distributionSignature: signature,
+          }
+        })
       });
     } catch (dbError) {
-      console.error('❌ Failed to save to database:', dbError);
+      console.error('❌ Failed to save to database via API:', dbError);
       // Don't throw here - the blockchain transaction already succeeded
     }
     
@@ -515,48 +532,70 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
         
         console.log('🎮 Creator added as first player to game:', newGame.id);
         
-        // Save game to database - but don't refresh immediately to avoid race condition
+        // Save game to database via API - but don't refresh immediately to avoid race condition
         try {
-          await saveGame({
-            id: newGame.id,
-            name,
-            creatorAddress: publicKey.toString(),
-            buyInAmount: buyIn,
-            maxPlayers,
-            minPlayers: newGame.minPlayers,
-            totalPot: 0,
-            houseFeeCollected: 0,
-            gameStatus: 'waiting',
-            escrowPublicKey: newGame.escrowAccount.publicKey,
-            escrowSecretKey: newGame.escrowAccount.secretKey,
-            createdAt: newGame.createdAt,
+          // Save game
+          await fetch('/api/games', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'create_game',
+              gameData: {
+                id: newGame.id,
+                name,
+                creatorAddress: publicKey.toString(),
+                buyInAmount: buyIn,
+                maxPlayers,
+                minPlayers: newGame.minPlayers,
+                totalPot: 0,
+                houseFeeCollected: 0,
+                gameStatus: 'waiting',
+                escrowPublicKey: newGame.escrowAccount.publicKey,
+                escrowSecretKey: newGame.escrowAccount.secretKey,
+                createdAt: newGame.createdAt,
+              }
+            })
           });
 
           // Save creator as first player
-          await saveGamePlayer({
-            gameId: newGame.id,
-            playerAddress: publicKey.toString(),
-            buyInAmount: buyIn,
-            transactionSignature: signature,
-            paymentConfirmed: true,
-            joinedAt: Date.now(),
+          await fetch('/api/games', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'join_game',
+              playerData: {
+                gameId: newGame.id,
+                playerAddress: publicKey.toString(),
+                buyInAmount: buyIn,
+                transactionSignature: signature,
+                paymentConfirmed: true,
+                joinedAt: Date.now(),
+              }
+            })
           });
 
           // Save buy-in transaction
-          await saveTransaction({
-            signature,
-            transactionType: 'buy_in',
-            amount: buyIn,
-            fromAddress: publicKey.toString(),
-            toAddress: newGame.escrowAccount.publicKey,
-            gameId: newGame.id,
-            status: 'confirmed',
-            blockTime: Date.now(),
+          await fetch('/api/games', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'save_transaction',
+              transactionData: {
+                signature,
+                transactionType: 'buy_in',
+                amount: buyIn,
+                fromAddress: publicKey.toString(),
+                toAddress: newGame.escrowAccount.publicKey,
+                gameId: newGame.id,
+                status: 'confirmed',
+                blockTime: Date.now(),
+              }
+            })
           });
 
-          console.log('🎮 Game saved to database successfully');
+          console.log('🎮 Game saved to database via API successfully');
         } catch (dbError) {
-          console.error('❌ Failed to save game to database:', dbError);
+          console.error('❌ Failed to save game to database via API:', dbError);
         }
       }
       
@@ -604,49 +643,73 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
 
       dispatch({ type: 'JOIN_GAME', payload: { gameId, player } });
       
-      // Save to database - but don't refresh immediately to avoid race condition
+      // Save to database via API - but don't refresh immediately to avoid race condition
       try {
-        await saveGamePlayer({
-          gameId,
-          playerAddress: publicKey.toString(),
-          buyInAmount: buyIn,
-          transactionSignature: signature,
-          paymentConfirmed: true,
-          joinedAt: Date.now(),
+        // Save player
+        await fetch('/api/games', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'join_game',
+            playerData: {
+              gameId,
+              playerAddress: publicKey.toString(),
+              buyInAmount: buyIn,
+              transactionSignature: signature,
+              paymentConfirmed: true,
+              joinedAt: Date.now(),
+            }
+          })
         });
 
-        await saveTransaction({
-          signature,
-          transactionType: 'buy_in',
-          amount: buyIn,
-          fromAddress: publicKey.toString(),
-          toAddress: game.escrowAccount.publicKey,
-          gameId,
-          status: 'confirmed',
-          blockTime: Date.now(),
+        // Save transaction
+        await fetch('/api/games', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'save_transaction',
+            transactionData: {
+              signature,
+              transactionType: 'buy_in',
+              amount: buyIn,
+              fromAddress: publicKey.toString(),
+              toAddress: game.escrowAccount.publicKey,
+              gameId,
+              status: 'confirmed',
+              blockTime: Date.now(),
+            }
+          })
         });
 
         // Update game state in database
         const updatedGame = state.games.find(g => g.id === gameId);
         if (updatedGame) {
-          await saveGame({
-            id: updatedGame.id,
-            creatorAddress: updatedGame.createdBy,
-            buyInAmount: updatedGame.buyInAmount,
-            maxPlayers: updatedGame.maxPlayers,
-            minPlayers: updatedGame.minPlayers,
-            totalPot: updatedGame.totalPot,
-            houseFeeCollected: updatedGame.houseFeeCollected,
-            gameStatus: updatedGame.gameStatus,
-            escrowPublicKey: updatedGame.escrowAccount!.publicKey,
-            escrowSecretKey: updatedGame.escrowAccount!.secretKey,
-            createdAt: updatedGame.createdAt,
+          await fetch('/api/games', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'create_game',
+              gameData: {
+                id: updatedGame.id,
+                name: updatedGame.name,
+                creatorAddress: updatedGame.createdBy,
+                buyInAmount: updatedGame.buyInAmount,
+                maxPlayers: updatedGame.maxPlayers,
+                minPlayers: updatedGame.minPlayers,
+                totalPot: updatedGame.totalPot,
+                houseFeeCollected: updatedGame.houseFeeCollected,
+                gameStatus: updatedGame.gameStatus,
+                escrowPublicKey: updatedGame.escrowAccount!.publicKey,
+                escrowSecretKey: updatedGame.escrowAccount!.secretKey,
+                createdAt: updatedGame.createdAt,
+              }
+            })
           });
         }
 
-        console.log('🎮 Player join saved to database successfully');
+        console.log('🎮 Player join saved to database via API successfully');
       } catch (dbError) {
-        console.error('❌ Failed to save player to database:', dbError);
+        console.error('❌ Failed to save player to database via API:', dbError);
         // Don't fail the whole operation if database save fails
       }
       
@@ -759,8 +822,8 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
     }
     
     try {
-      // Remove player from database
-      await removePlayerFromGame(gameId, publicKey.toString());
+      // Remove player from database via API (note: this functionality may need to be added to API)
+      console.log('⚠️ Player removal from database not yet implemented via API');
       
       // Update local state
       const playerBuyIn = game.players.find(p => p.publicKey === publicKey.toString())?.buyIn || 0;

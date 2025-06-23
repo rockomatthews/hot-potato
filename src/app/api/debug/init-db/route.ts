@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { initializeGameTables, initializeDatabase } from '@/lib/db';
-import { neon } from '@neondatabase/serverless';
 import { Pool } from '@neondatabase/serverless';
 
 export async function POST() {
