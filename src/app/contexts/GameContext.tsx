@@ -62,7 +62,7 @@ export interface GameState {
 }
 
 type GameAction =
-  | { type: 'CREATE_GAME'; payload: { name: string; buyIn: number; maxPlayers: number; createdBy: string } }
+  | { type: 'CREATE_GAME'; payload: { game: Game } }
   | { type: 'JOIN_GAME'; payload: { gameId: string; player: Player } }
   | { type: 'START_GAME'; payload: { gameId: string } }
   | { type: 'FINISH_GAME'; payload: { gameId: string; loser: string } }
@@ -77,25 +77,8 @@ const initialState: GameState = {
 function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case 'CREATE_GAME': {
-      const escrowAccount = generateGameEscrowAccount();
-      const newGame: Game = {
-        id: Math.random().toString(36).substr(2, 9),
-        name: action.payload.name,
-        players: [],
-        gameStatus: 'waiting',
-        maxPlayers: action.payload.maxPlayers,
-        minPlayers: Math.max(3, Math.ceil(action.payload.maxPlayers * 0.6)),
-        buyInAmount: action.payload.buyIn,
-        totalPot: 0,
-        houseFeeCollected: 0,
-        createdBy: action.payload.createdBy,
-        createdAt: Date.now(),
-        escrowAccount: {
-          publicKey: escrowAccount.publicKey.toString(),
-          secretKey: Array.from(escrowAccount.secretKey),
-        },
-        paymentStatus: 'pending',
-      };
+      // Use the pre-built game from the payload
+      const newGame = action.payload.game;
       
       return {
         ...state,
@@ -486,23 +469,34 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
     try {
       setPaymentLoading(true);
       
-      // Create the game first (creates escrow account)
+      // Create the game object locally first (including escrow account)
+      const escrowAccount = generateGameEscrowAccount();
+      const newGame: Game = {
+        id: Math.random().toString(36).substr(2, 9),
+        name,
+        players: [],
+        gameStatus: 'waiting',
+        maxPlayers,
+        minPlayers: Math.max(3, Math.ceil(maxPlayers * 0.6)),
+        buyInAmount: buyIn,
+        totalPot: 0,
+        houseFeeCollected: 0,
+        createdBy: publicKey.toString(),
+        createdAt: Date.now(),
+        escrowAccount: {
+          publicKey: escrowAccount.publicKey.toString(),
+          secretKey: Array.from(escrowAccount.secretKey),
+        },
+        paymentStatus: 'pending',
+      };
+      
+      // Now dispatch the game creation with the pre-built game
       dispatch({ 
         type: 'CREATE_GAME', 
         payload: { 
-          name,
-          buyIn, 
-          maxPlayers, 
-          createdBy: publicKey.toString() 
+          game: newGame 
         } 
       });
-      
-      // Get the newly created game (should be the last one added)
-      const newGame = state.games[state.games.length - 1];
-      
-      if (!newGame) {
-        throw new Error('Failed to create game in local state');
-      }
       
       // Creator must also deposit their buy-in
       if (newGame?.escrowAccount) {
