@@ -6,15 +6,19 @@ neonConfig.fetchConnectionCache = true;
 
 // Try multiple possible database URL environment variables
 function getDatabaseUrl() {
-  // Debug: Log all possible environment variables at runtime
-  if (typeof window === 'undefined') { // Server-side only
-    console.log('🔍 Runtime environment variables check:');
-    console.log('NODE_ENV:', process.env.NODE_ENV);
-    console.log('VERCEL:', process.env.VERCEL);
-    console.log('Available env keys:', Object.keys(process.env).filter(k => 
-      k.includes('DATABASE') || k.includes('POSTGRES') || k.includes('PG')
-    ));
+  // Only run on server side
+  if (typeof window !== 'undefined') {
+    console.warn('⚠️ Database connection attempted on client side - skipping');
+    return null;
   }
+  
+  // Debug: Log all possible environment variables at runtime
+  console.log('🔍 Runtime environment variables check:');
+  console.log('NODE_ENV:', process.env.NODE_ENV);
+  console.log('VERCEL:', process.env.VERCEL);
+  console.log('Available env keys:', Object.keys(process.env).filter(k => 
+    k.includes('DATABASE') || k.includes('POSTGRES') || k.includes('PG')
+  ));
   
   // First try the direct URL variables
   const directUrl = process.env.DATABASE_URL || 
@@ -44,31 +48,50 @@ function getDatabaseUrl() {
   return null;
 }
 
-const databaseUrl = getDatabaseUrl();
+// LAZY CONNECTION - Don't create at module load time
+let cachedPool: Pool | null = null;
+let cachedSql: ReturnType<typeof neon> | null = null;
 
-console.log('🔍 Database configuration:', {
-  // Direct URL variables
-  DATABASE_URL: process.env.DATABASE_URL ? '✅ Set' : '❌ Missing',
-  POSTGRES_URL: process.env.POSTGRES_URL ? '✅ Set' : '❌ Missing', 
-  POSTGRES_URL_NON_POOLING: process.env.POSTGRES_URL_NON_POOLING ? '✅ Set' : '❌ Missing',
-  POSTGRES_PRISMA_URL: process.env.POSTGRES_PRISMA_URL ? '✅ Set' : '❌ Missing',
-  // Component variables
-  PGHOST: process.env.PGHOST ? '✅ Set' : '❌ Missing',
-  POSTGRES_HOST: process.env.POSTGRES_HOST ? '✅ Set' : '❌ Missing',
-  PGUSER: process.env.PGUSER ? '✅ Set' : '❌ Missing',
-  POSTGRES_USER: process.env.POSTGRES_USER ? '✅ Set' : '❌ Missing',
-  PGPASSWORD: process.env.PGPASSWORD ? '✅ Set' : '❌ Missing',
-  POSTGRES_PASSWORD: process.env.POSTGRES_PASSWORD ? '✅ Set' : '❌ Missing',
-  PGDATABASE: process.env.PGDATABASE ? '✅ Set' : '❌ Missing',
-  POSTGRES_DATABASE: process.env.POSTGRES_DATABASE ? '✅ Set' : '❌ Missing',
-  selectedUrl: databaseUrl ? '✅ Found connection string' : '❌ No connection string found'
-});
+function ensureDatabaseConnection() {
+  // Only run on server side
+  if (typeof window !== 'undefined') {
+    console.warn('⚠️ Database connection attempted on client side - returning null');
+    return null;
+  }
+  
+  // Check if we already have a cached connection
+  if (cachedPool) {
+    console.log('🔄 Using cached database connection');
+    return cachedPool;
+  }
+  
+  // Get database URL at runtime
+  const databaseUrl = getDatabaseUrl();
+  
+  if (!databaseUrl) {
+    console.warn('⚠️ Database not available - Hot Potato game will run without user profiles');
+    return null;
+  }
+  
+  try {
+    // Create new pool connection
+    cachedPool = new Pool({ connectionString: databaseUrl });
+    cachedSql = neon(databaseUrl);
+    
+    console.log('✅ Database connection established successfully');
+    return cachedPool;
+  } catch (error) {
+    console.error('❌ Failed to create database connection:', error);
+    return null;
+  }
+}
 
-// Create a connection pool for serverless environment
-const pool = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
-
-// Create a SQL client for direct queries
-const sql = databaseUrl ? neon(databaseUrl) : null;
+// Remove the module-level connection creation
+if (typeof window === 'undefined') {
+  console.log('🔍 Database module loaded on server - connections will be created at runtime');
+} else {
+  console.log('🔍 Database module loaded on client - database functions disabled');
+}
 
 export interface UserProfile {
   id: number;
@@ -88,15 +111,6 @@ export interface CreateUserProfile {
 export interface UpdateUserProfile {
   username?: string;
   profile_picture_url?: string;
-}
-
-function ensureDatabaseConnection() {
-  if (!pool) {
-    console.warn('⚠️ Database not available - Hot Potato game will run without user profiles');
-    // Return null to indicate no database available
-    return null;
-  }
-  return pool;
 }
 
 // Initialize the users table
@@ -391,10 +405,9 @@ export async function saveGame(game: {
   });
   
   if (!db) {
-    console.error('❌ CRITICAL: No database connection - game will NOT be saved!');
-    console.error('❌ This means games will disappear and other players cannot join!');
-    console.error('❌ Check your Neon database environment variables in Vercel!');
-    throw new Error('Database connection not available - games cannot be saved');
+    console.warn('⚠️ No database connection - game will only exist in local state');
+    console.warn('⚠️ Game will disappear on refresh - but won\'t break the app');
+    return; // Don't throw error, just return
   }
   
   try {
@@ -440,9 +453,8 @@ export async function saveGame(game: {
     
     console.log(`✅ SUCCESS: Game ${game.id} saved to Neon database!`);
   } catch (error) {
-    console.error('❌ CRITICAL ERROR saving game to database:', error);
-    console.error('❌ Game data:', game);
-    throw error;
+    console.error('❌ Error saving game to database (but app continues):', error);
+    // Don't throw - let the app continue working without database
   }
 }
 
@@ -458,7 +470,7 @@ export async function saveGamePlayer(player: {
   const db = ensureDatabaseConnection();
   
   if (!db) {
-    console.log('⚠️ Player data not saved - no database connection');
+    console.warn('⚠️ Player data not saved - no database connection');
     return;
   }
   
@@ -485,8 +497,8 @@ export async function saveGamePlayer(player: {
     
     console.log(`✅ Player ${player.playerAddress} saved to game ${player.gameId}`);
   } catch (error) {
-    console.error('❌ Error saving game player:', error);
-    throw error;
+    console.error('❌ Error saving game player (but app continues):', error);
+    // Don't throw - let the app continue working without database
   }
 }
 
@@ -504,7 +516,7 @@ export async function saveTransaction(transaction: {
   const db = ensureDatabaseConnection();
   
   if (!db) {
-    console.log('⚠️ Transaction not saved - no database connection');
+    console.warn('⚠️ Transaction not saved - no database connection');
     return;
   }
   
@@ -533,8 +545,8 @@ export async function saveTransaction(transaction: {
     
     console.log(`✅ Transaction ${transaction.signature} saved`);
   } catch (error) {
-    console.error('❌ Error saving transaction:', error);
-    throw error;
+    console.error('❌ Error saving transaction (but app continues):', error);
+    // Don't throw - let the app continue working without database
   }
 }
 
@@ -811,4 +823,4 @@ export async function removePlayerFromGame(gameId: string, playerAddress: string
   }
 }
 
-export { sql }; 
+export { cachedSql }; 

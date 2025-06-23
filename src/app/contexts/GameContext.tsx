@@ -787,17 +787,18 @@ export function GameContextProvider({ children }: { children: React.ReactNode })
   };
 
   // Periodic refresh every 30 seconds to keep games in sync with database
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        await refreshGames();
-      } catch (error) {
-        console.warn('⚠️ Periodic refresh failed:', error);
-      }
-    }, 30000); // 30 seconds
+  // DISABLED temporarily to prevent wiping local state when database is down
+  // useEffect(() => {
+  //   const interval = setInterval(async () => {
+  //     try {
+  //       await refreshGames();
+  //     } catch (error) {
+  //       console.warn('⚠️ Periodic refresh failed:', error);
+  //     }
+  //   }, 30000); // 30 seconds
 
-    return () => clearInterval(interval);
-  }, [refreshGames]);
+  //   return () => clearInterval(interval);
+  // }, [refreshGames]);
 
   const getHouseFeeInfo = () => ({
     percentage: HOUSE_FEE_PERCENTAGE,
