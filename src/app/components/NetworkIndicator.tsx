@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Chip, Tooltip } from '@mui/material';
+import { Box, Tooltip } from '@mui/material';
 import { Circle, Speed, Security } from '@mui/icons-material';
 
 export default function NetworkIndicator() {
@@ -25,12 +25,7 @@ export default function NetworkIndicator() {
     return <Circle sx={{ fontSize: 16 }} />;
   };
 
-  const getNetworkLabel = () => {
-    if (isMainnet) {
-      return isQuickNode ? 'Mainnet (QuickNode)' : 'Mainnet';
-    }
-    return network.charAt(0).toUpperCase() + network.slice(1);
-  };
+
 
   const getTooltipText = () => {
     if (isMainnet) {
@@ -43,20 +38,17 @@ export default function NetworkIndicator() {
 
   return (
     <Tooltip title={getTooltipText()} arrow>
-      <Chip
-        icon={getNetworkIcon()}
-        label={getNetworkLabel()}
-        size="small"
+      <Box
         sx={{
+          width: 32,
+          height: 32,
+          borderRadius: '50%',
           backgroundColor: isMainnet ? 'rgba(38, 208, 206, 0.15)' : 'rgba(255, 107, 53, 0.15)',
+          border: `2px solid ${getNetworkColor()}30`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
           color: getNetworkColor(),
-          border: `1px solid ${getNetworkColor()}30`,
-          fontWeight: '600',
-          fontSize: '0.75rem',
-          height: '24px',
-          '& .MuiChip-icon': {
-            color: getNetworkColor(),
-          },
           animation: isMainnet ? 'pulse 2s infinite' : 'none',
           '@keyframes pulse': {
             '0%': {
@@ -70,7 +62,9 @@ export default function NetworkIndicator() {
             },
           },
         }}
-      />
+      >
+        {getNetworkIcon()}
+      </Box>
     </Tooltip>
   );
 } 

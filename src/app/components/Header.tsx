@@ -91,7 +91,7 @@ export default function Header({ onCreateGame }: HeaderProps) {
           boxShadow: '0 4px 20px rgba(255, 107, 53, 0.1)',
         }}
       >
-        <Toolbar sx={{ justifyContent: 'space-between', py: 1 }}>
+        <Toolbar sx={{ justifyContent: 'space-between', py: 1, px: { xs: 1, sm: 3 } }}>
           {/* Left side - Create Game Button */}
           <Box>
             {connected && (
@@ -110,23 +110,29 @@ export default function Header({ onCreateGame }: HeaderProps) {
                   },
                   borderRadius: '12px',
                   textTransform: 'none',
-                  px: 3,
+                  px: { xs: 2, sm: 3 },
                   py: 1.5,
+                  fontSize: { xs: '0.875rem', sm: '1rem' },
                   transition: 'all 0.3s ease',
                 }}
               >
-                Create Game of Potato
+                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                  Create Game of Potato
+                </Box>
+                <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>
+                  Create Game
+                </Box>
               </Button>
             )}
           </Box>
 
-          {/* Center - Logo */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {/* Center - Logo Only */}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
             <Box
               sx={{
                 position: 'relative',
-                width: 60,
-                height: 60,
+                width: { xs: 50, sm: 60 },
+                height: { xs: 50, sm: 60 },
                 filter: 'drop-shadow(0 4px 10px rgba(255, 107, 53, 0.3))',
               }}
             >
@@ -141,29 +147,14 @@ export default function Header({ onCreateGame }: HeaderProps) {
                 priority
               />
             </Box>
-            <Typography 
-              variant="h4" 
-              component="div" 
-              sx={{ 
-                fontWeight: 'bold',
-                background: 'linear-gradient(135deg, #FF6B35 0%, #FF8C42 30%, #FF9A56 60%, #FFB366 100%)',
-                backgroundClip: 'text',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                textShadow: '0 2px 4px rgba(255, 107, 53, 0.3)',
-                letterSpacing: '-0.5px',
-              }}
-            >
-              HOT POTATO
-            </Typography>
           </Box>
 
           {/* Right side - Network & Wallet Info */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, sm: 2 } }}>
             <NetworkIndicator />
             {connected && publicKey ? (
               hasProfile && userProfile ? (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 } }}>
                   <Chip
                     avatar={
                       <Avatar 
@@ -182,6 +173,8 @@ export default function Header({ onCreateGame }: HeaderProps) {
                       backgroundColor: 'rgba(255, 107, 53, 0.1)',
                       backdropFilter: 'blur(10px)',
                       cursor: 'pointer',
+                      fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                      height: { xs: 28, sm: 32 },
                       '&:hover': {
                         borderColor: 'rgba(255, 107, 53, 0.6)',
                         backgroundColor: 'rgba(255, 107, 53, 0.2)',
@@ -192,7 +185,7 @@ export default function Header({ onCreateGame }: HeaderProps) {
                   <IconButton
                     size="small"
                     onClick={(e) => setProfileMenuAnchor(e.currentTarget)}
-                    sx={{ color: 'white' }}
+                    sx={{ color: 'white', display: { xs: 'none', sm: 'inline-flex' } }}
                   >
                     <MoreVert />
                   </IconButton>
@@ -237,6 +230,8 @@ export default function Header({ onCreateGame }: HeaderProps) {
                     borderColor: 'rgba(255, 107, 53, 0.4)',
                     backgroundColor: 'rgba(255, 107, 53, 0.1)',
                     backdropFilter: 'blur(10px)',
+                    fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                    height: { xs: 28, sm: 32 },
                     '& .MuiChip-icon': {
                       color: '#FF8C42',
                     },
@@ -255,7 +250,8 @@ export default function Header({ onCreateGame }: HeaderProps) {
                 borderRadius: '12px !important',
                 border: 'none !important',
                 fontWeight: '600 !important',
-                padding: '12px 24px !important',
+                padding: { xs: '8px 16px !important', sm: '12px 24px !important' },
+                fontSize: { xs: '0.875rem !important', sm: '1rem !important' },
                 transition: 'all 0.3s ease !important',
                 '&:hover': {
                   background: 'linear-gradient(135deg, #E5502A 0%, #E6732F 100%) !important',
@@ -267,11 +263,12 @@ export default function Header({ onCreateGame }: HeaderProps) {
               </Box>
             )}
 
-            {/* Transaction History Button */}
+            {/* Transaction History Button - Hidden on mobile */}
             <IconButton
               onClick={() => setTransactionHistoryOpen(true)}
               sx={{
                 color: '#FFB366',
+                display: { xs: 'none', sm: 'inline-flex' },
                 '&:hover': { 
                   backgroundColor: 'rgba(255, 107, 53, 0.1)',
                   color: '#FF6B35'
